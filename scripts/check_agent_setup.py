@@ -18,7 +18,6 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 CLAUDE_MCP = ROOT / ".mcp.json"
 CODEX_CONFIG = ROOT / ".codex" / "config.toml"

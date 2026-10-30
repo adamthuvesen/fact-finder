@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import re
 
-
 ALLOWED_SQL_STARTS = frozenset(
     {"DESC", "DESCRIBE", "EXPLAIN", "PRAGMA", "SELECT", "SHOW", "USE", "WITH"}
 )
@@ -59,6 +58,7 @@ def sql_code_only(sql: str) -> str:
     index = 0
     state = "code"
     quote = ""
+    quote_start = 0
 
     while index < len(sql):
         char = sql[index]
@@ -76,10 +76,20 @@ def sql_code_only(sql: str) -> str:
                 state = "block_comment"
                 continue
             if char in {"'", '"'}:
+                quote_start = index
                 result.append(" ")
                 quote = char
                 state = "quote"
                 index += 1
+                continue
+            if (
+                char == "$"
+                and following == "$"
+                and (index == 0 or not re.match(r"[A-Za-z0-9_$]", sql[index - 1]))
+            ):
+                result.extend("  ")
+                state = "dollar_quote"
+                index += 2
                 continue
             result.append(char)
             index += 1
@@ -102,10 +112,30 @@ def sql_code_only(sql: str) -> str:
                 index += 1
             continue
 
+        if state == "dollar_quote":
+            if char == "$" and following == "$":
+                result.extend("  ")
+                index += 2
+                state = "code"
+            else:
+                result.append("\n" if char == "\n" else " ")
+                index += 1
+            continue
+
+        if quote == "'" and char == "\\" and following:
+            result.extend("  ")
+            index += 2
+            continue
+
         if char == quote and following == quote:
             result.extend("  ")
             index += 2
         elif char == quote:
+            if quote == '"' and re.fullmatch(
+                r"(?:SYSTEM\$[A-Z_0-9]+|NEXTVAL)",
+                sql[quote_start + 1 : index].upper(),
+            ):
+                raise ValueError("system functions and sequence operations are blocked")
             result.append(" ")
             index += 1
             state = "code"
@@ -113,7 +143,7 @@ def sql_code_only(sql: str) -> str:
             result.append("\n" if char == "\n" else " ")
             index += 1
 
-    if state in {"block_comment", "quote"}:
+    if state in {"block_comment", "quote", "dollar_quote"}:
         raise ValueError("SQL contains an unterminated comment or quoted value")
     return "".join(result)
 
@@ -130,6 +160,11 @@ def sql_words(statement: str) -> list[str]:
 
 
 def first_forbidden_sql_word(code_only_sql: str) -> str | None:
+    side_effect = re.search(
+        r"\b(?:SYSTEM\$[A-Z_0-9]+|NEXTVAL)\b", code_only_sql.upper()
+    )
+    if side_effect:
+        return side_effect.group()
     for word in sql_words(code_only_sql):
         if word in FORBIDDEN_SQL_WORDS:
             return word

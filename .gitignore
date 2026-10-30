@@ -1,6 +1,5 @@
 # OS / editor / tooling artifacts
 .DS_Store
-.python-version
 .venv/
 .pytest_cache/
 .ruff_cache/

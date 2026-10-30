@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
-from io import BytesIO
 import urllib.error
 import urllib.request
+from io import BytesIO
 from typing import Any
 from unittest.mock import MagicMock, patch
 

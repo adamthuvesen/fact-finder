@@ -8,7 +8,6 @@ from typing import TypedDict
 
 from .layout import find_repo_root
 
-
 _READ_ONLY_POLICY = (
     "All sources are strictly read-only. "
     "Search, query, and retrieve only — never send messages, create or update issues, "

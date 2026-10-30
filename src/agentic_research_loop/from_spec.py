@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 RECOGNIZED_FILES = ("brief.md", "plan.md", "notes.md")
 
 

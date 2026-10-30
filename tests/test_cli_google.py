@@ -8,7 +8,6 @@ import pytest
 from agentic_research_loop.cli import main
 from agentic_research_loop.google_api import GoogleApiError
 
-
 _GSC_RESPONSE = {
     "rows": [
         {
