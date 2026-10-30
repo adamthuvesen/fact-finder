@@ -1,15 +1,19 @@
 """Generate each client's MCP config and write-tool deny list from one definition.
 
-Claude Code reads `.mcp.json` and `.claude/settings.json`. Cursor reads
+Claude Code reads `.mcp.json`, and merges the deny lists of `.claude/settings.json` and the
+untracked `.claude/settings.local.json`. A source's rules go in the local file, so enabling one
+leaves shared settings alone. Cursor reads
 `.cursor/mcp.json` and `.cursor/cli.json`. Codex reads `.codex/config.toml`.
 
-These files belong to the user. The engine adds only what is missing and records what
-it added in `Wiring`, so it never overwrites a user's value and removes only its own.
+These files belong to the user. The engine records what it added in `Wiring`. An entry it does
+not own is never changed. In an entry it owns, it keeps every value a person may set, and brings
+what chooses the server back to the bundle.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, get_args
@@ -19,6 +23,7 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 from tomlkit.exceptions import TOMLKitError
 from tomlkit.toml_document import TOMLDocument
 
+from .feedback import problem
 from .io import read_text
 from .layout import as_table
 from .sources import Client, ServerDefinition, SourceConfigError, Wiring
@@ -30,6 +35,7 @@ CLAUDE_MCP = ".mcp.json"
 CURSOR_MCP = ".cursor/mcp.json"
 CODEX_CONFIG = ".codex/config.toml"
 CLAUDE_SETTINGS = ".claude/settings.json"
+CLAUDE_LOCAL_SETTINGS = ".claude/settings.local.json"
 CURSOR_PERMISSIONS = ".cursor/cli.json"
 CLIENTS: tuple[Client, ...] = get_args(Client)
 CLIENT_FILES: dict[Client, str] = {
@@ -38,6 +44,9 @@ CLIENT_FILES: dict[Client, str] = {
     "codex": CODEX_CONFIG,
 }
 GoalsState = Literal["enabled", "disabled", "unset"]
+
+
+SERVER_CHOICE_KEYS = ("type", "url", "command", "args")
 
 
 def claude_server(server: ServerDefinition) -> JsonObject:
@@ -78,14 +87,71 @@ def cursor_deny_rules(server: ServerDefinition) -> list[str]:
     return [f"Mcp({server.server_name}:{tool})" for tool in server.write_tools]
 
 
-def _read_json_object(path: Path) -> JsonObject:
+def _value_pattern(value: str, server: ServerDefinition) -> str:
+    pattern = re.escape(value).replace(re.escape("@latest"), r"@[\w.-]+")
+    for placeholder in server.placeholders:
+        fill = r"/\S+" if placeholder.startswith("/") else r"[^/\s]+"
+        pattern = pattern.replace(re.escape(placeholder), fill)
+    return "|".join([pattern, *server.alternatives.get(value, [])])
+
+
+def _matches(value: object, default: str | None, server: ServerDefinition) -> bool:
+    if default is None:
+        return value is None
+    return isinstance(value, str) and bool(
+        re.fullmatch(_value_pattern(default, server), value)
+    )
+
+
+def _without_optional_args(args: list[str], server: ServerDefinition) -> list[str]:
+    kept: list[str] = []
+    skip_value = False
+    for arg in args:
+        if skip_value:
+            skip_value = False
+        elif arg in server.optional_args:
+            skip_value = True
+        elif not any(arg.startswith(f"{flag}=") for flag in server.optional_args):
+            kept.append(arg)
+    return kept
+
+
+def server_differences(entry: dict[str, Any], server: ServerDefinition) -> list[str]:
+    """Compare what a client would connect to with the bundle's definition.
+
+    Only the url, command, and args choose the server. Other keys, such as `env` and
+    `headers`, hold the credentials the bundle's `setup` tells the user to add.
+    """
+    differences = [
+        f"{key} is {entry.get(key)!r}"
+        for key, default in (("url", server.url), ("command", server.command))
+        if not _matches(entry.get(key), default, server)
+    ]
+    args = _without_optional_args([str(arg) for arg in entry.get("args", [])], server)
+    if len(args) != len(server.args) or not all(
+        _matches(arg, default, server)
+        for arg, default in zip(args, server.args, strict=True)
+    ):
+        differences.append(f"args are {args!r}")
+    return differences
+
+
+def _disables_write_tools(entry: dict[str, Any], server: ServerDefinition) -> bool:
+    return set(server.write_tools) <= set(entry.get("disabled_tools", []))
+
+
+def read_json_object(path: Path) -> JsonObject:
     if not path.exists():
         return {}
     try:
         return JSON_OBJECT.validate_json(read_text(path))
     except ValidationError as exc:
         raise SourceConfigError(
-            f"{path} is not a JSON object: {exc.errors()[0]['msg']}"
+            problem(
+                f"not a JSON object: {exc.errors()[0]['msg']}",
+                "correct the syntax",
+                file=str(path),
+            )
         ) from exc
 
 
@@ -95,7 +161,9 @@ def _read_toml(path: Path) -> TOMLDocument:
     try:
         return tomlkit.parse(read_text(path))
     except TOMLKitError as exc:
-        raise SourceConfigError(f"{path} is not valid TOML: {exc}") from exc
+        raise SourceConfigError(
+            problem(f"not valid TOML: {exc}", "correct the syntax", file=str(path))
+        ) from exc
 
 
 def _child_object(parent: JsonObject, key: str) -> JsonObject:
@@ -129,12 +197,19 @@ def _add_deny_rules(document: JsonObject, rules: list[str]) -> list[str]:
 
 
 def _remove_deny_rules(document: JsonObject, rules: list[str]) -> None:
+    """Remove the rules, and any `deny` or `permissions` block that leaves empty."""
     permissions = document.get("permissions")
     if not isinstance(permissions, dict):
         return
     deny = permissions.get("deny")
     if isinstance(deny, list):
-        permissions["deny"] = [rule for rule in deny if rule not in rules]
+        kept = [rule for rule in deny if rule not in rules]
+        if kept:
+            permissions["deny"] = kept
+        else:
+            del permissions["deny"]
+    if not permissions:
+        del document["permissions"]
 
 
 def _render(document: JsonObject) -> str:
@@ -145,6 +220,8 @@ def _render(document: JsonObject) -> str:
 class WireResult:
     wiring: Wiring
     added_files: list[str]
+    updated_files: list[str]
+    conflict_files: list[str]
     denied: bool
 
 
@@ -156,18 +233,20 @@ class ClientConfigs:
     claude_mcp: JsonObject
     cursor_mcp: JsonObject
     codex: Any
-    claude_settings: JsonObject
+    claude_local_settings: JsonObject
+    claude_shared_deny: list[str]
     cursor_permissions: JsonObject
 
     @classmethod
     def read(cls, root: Path) -> ClientConfigs:
         return cls(
             root=root,
-            claude_mcp=_read_json_object(root / CLAUDE_MCP) or {"mcpServers": {}},
-            cursor_mcp=_read_json_object(root / CURSOR_MCP) or {"mcpServers": {}},
+            claude_mcp=read_json_object(root / CLAUDE_MCP) or {"mcpServers": {}},
+            cursor_mcp=read_json_object(root / CURSOR_MCP) or {"mcpServers": {}},
             codex=_read_toml(root / CODEX_CONFIG),
-            claude_settings=_read_json_object(root / CLAUDE_SETTINGS),
-            cursor_permissions=_read_json_object(root / CURSOR_PERMISSIONS),
+            claude_local_settings=read_json_object(root / CLAUDE_LOCAL_SETTINGS),
+            claude_shared_deny=deny_rules(read_json_object(root / CLAUDE_SETTINGS)),
+            cursor_permissions=read_json_object(root / CURSOR_PERMISSIONS),
         )
 
     def _codex_servers(self) -> Any:
@@ -200,6 +279,24 @@ class ClientConfigs:
                 table[key] = value
             self._codex_servers()[name] = table
 
+    def _retarget(self, client: Client, server: ServerDefinition) -> None:
+        """Point an owned entry at the bundle's server, keeping every other key."""
+        name = server.server_name
+        if client == "codex":
+            entry: Any = self._codex_servers()[name]
+            shape = codex_server(server)
+        elif client == "claude":
+            entry = _child_object(self.claude_mcp, "mcpServers")[name]
+            shape = claude_server(server)
+        else:
+            entry = _child_object(self.cursor_mcp, "mcpServers")[name]
+            shape = cursor_server(server)
+        for key in SERVER_CHOICE_KEYS:
+            if key in shape:
+                entry[key] = shape[key]
+            else:
+                entry.pop(key, None)
+
     def _remove_server(self, client: Client, server_name: str) -> None:
         if client == "codex":
             servers: Any = self.codex.get("mcp_servers")
@@ -220,25 +317,30 @@ class ClientConfigs:
             table["disabled_tools"] = [*disabled, *added]
         return added
 
-    def wire(self, server: ServerDefinition, owned: Wiring | None) -> WireResult:
-        """Add what is missing, keep every existing value, and say what really changed.
+    def conflicts(self, server: ServerDefinition, owned: list[Client]) -> list[Client]:
+        """Return each client with an entry research did not add that breaks the bundle."""
+        return [
+            client
+            for client in CLIENTS
+            if client not in owned
+            and (entry := self.server_entry(client, server.server_name))
+            and (
+                server_differences(entry, server)
+                or (client == "codex" and not _disables_write_tools(entry, server))
+            )
+        ]
 
-        A server the engine did not add is the user's. That is a collision: raise, so
-        the caller writes nothing.
+    def wire(self, server: ServerDefinition, owned: Wiring | None) -> WireResult:
+        """Bring a server in line with its bundle, and say what really changed.
+
+        In an owned entry, only what chooses the server changes, and only when the bundle does
+        not allow its current value. Credentials and other keys stay. An entry research did not
+        add is never changed or recorded as owned, so disable cannot remove it. If it already
+        does what the bundle asks, it counts as satisfied, as in a committed client file.
+        If it does not, it is a conflict for that client alone.
         """
         owned_clients = owned.clients if owned else []
-        foreign = [
-            CLIENT_FILES[client]
-            for client in CLIENTS
-            if client not in owned_clients
-            and self.server_entry(client, server.server_name)
-        ]
-        if foreign:
-            raise SourceConfigError(
-                f"Server '{server.server_name}' already exists in {', '.join(foreign)} and "
-                "was not added by research. Nothing changed. Rename or remove that "
-                "entry, then run the command again."
-            )
+        conflicts = self.conflicts(server, owned_clients)
         added_clients: list[Client] = [
             client
             for client in CLIENTS
@@ -246,14 +348,43 @@ class ClientConfigs:
         ]
         for client in added_clients:
             self._add_server(client, server)
-        added_codex = self._add_codex_disabled_tools(server)
-        added_claude = _add_deny_rules(self.claude_settings, claude_deny_rules(server))
-        added_cursor = _add_deny_rules(
-            self.cursor_permissions, cursor_deny_rules(server)
+        managed: list[Client] = [
+            client
+            for client in CLIENTS
+            if client in owned_clients or client in added_clients
+        ]
+        updated_clients: list[Client] = [
+            client
+            for client in managed
+            if server_differences(
+                self.server_entry(client, server.server_name) or {}, server
+            )
+        ]
+        for client in updated_clients:
+            self._retarget(client, server)
+        added_codex = (
+            self._add_codex_disabled_tools(server) if "codex" in managed else []
+        )
+        added_claude = (
+            []
+            if "claude" in conflicts
+            else _add_deny_rules(
+                self.claude_local_settings,
+                [
+                    rule
+                    for rule in claude_deny_rules(server)
+                    if rule not in self.claude_shared_deny
+                ],
+            )
+        )
+        added_cursor = (
+            []
+            if "cursor" in conflicts
+            else _add_deny_rules(self.cursor_permissions, cursor_deny_rules(server))
         )
         wiring = Wiring(
             server_name=server.server_name,
-            clients=list(CLIENTS),
+            clients=managed,
             claude_deny=list(
                 dict.fromkeys([*(owned.claude_deny if owned else []), *added_claude])
             ),
@@ -264,14 +395,19 @@ class ClientConfigs:
         return WireResult(
             wiring=wiring,
             added_files=[CLIENT_FILES[client] for client in added_clients],
+            updated_files=[CLIENT_FILES[client] for client in updated_clients],
             denied=bool(added_claude or added_cursor or added_codex),
+            conflict_files=[CLIENT_FILES[client] for client in conflicts],
         )
 
     def unwire(self, wiring: Wiring) -> None:
+        """Remove what research added. A rule stays while its client still has the server."""
         for client in wiring.clients:
             self._remove_server(client, wiring.server_name)
-        _remove_deny_rules(self.claude_settings, wiring.claude_deny)
-        _remove_deny_rules(self.cursor_permissions, wiring.cursor_deny)
+        if not self.server_entry("claude", wiring.server_name):
+            _remove_deny_rules(self.claude_local_settings, wiring.claude_deny)
+        if not self.server_entry("cursor", wiring.server_name):
+            _remove_deny_rules(self.cursor_permissions, wiring.cursor_deny)
 
     def goals_state(self) -> GoalsState:
         value = as_table(as_table(self.codex.unwrap()).get("features")).get("goals")
@@ -288,21 +424,27 @@ class ClientConfigs:
             features = tomlkit.table()
             self.codex["features"] = features
         elif not hasattr(features, "append"):
-            raise SourceConfigError(f"{CODEX_CONFIG}: `features` is not a table.")
+            raise SourceConfigError(
+                problem(
+                    "`features` is not a table",
+                    "write it as a `[features]` table",
+                    file=CODEX_CONFIG,
+                )
+            )
         features["goals"] = True
 
     def documents(self) -> dict[Path, str]:
         """Return each client file whose content changed."""
-        contents: dict[str, JsonObject | None] = {
+        contents: dict[str, JsonObject] = {
             CLAUDE_MCP: self.claude_mcp,
             CURSOR_MCP: self.cursor_mcp,
-            CLAUDE_SETTINGS: self.claude_settings or None,
-            CURSOR_PERMISSIONS: self.cursor_permissions or None,
+            CLAUDE_LOCAL_SETTINGS: self.claude_local_settings,
+            CURSOR_PERMISSIONS: self.cursor_permissions,
         }
         rendered = {
             relative: _render(document)
             for relative, document in contents.items()
-            if document is not None
+            if document or (self.root / relative).exists()
         }
         rendered[CODEX_CONFIG] = tomlkit.dumps(self.codex)
         changed: dict[Path, str] = {}

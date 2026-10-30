@@ -3,14 +3,14 @@
 `agentic-research-loop` is a research kit for bounded investigations run inside a native
 agent goal. This file holds project facts. It is short because checks enforce the rest.
 
-- Operating model: [program.md](program.md)
-- Research method: [method.md](src/agentic_research_loop/contract/method.md)
-- Evidence and review: [docs/evidence-contract.md](docs/evidence-contract.md)
+- Next step on any case: `uv run research next [case]`
+- Research method and evidence: `uv run research contract method|evidence`
 - Modules and boundaries: [.agents/docs/architecture.md](.agents/docs/architecture.md)
 - Why there is no runtime: [.agents/docs/decisions/native-goals.md](.agents/docs/decisions/native-goals.md)
-- Setup and new sources: [.agents/docs/setup.md](.agents/docs/setup.md)
+- Setup, new sources, and local engine work: [.agents/docs/setup.md](.agents/docs/setup.md)
 
-If a doc disagrees with code, fix the doc in the same change. `make check` is the gate. Prove
+If a doc disagrees with code, fix the doc in the same change. `make quick` checks what changed in about
+two seconds, and the edit hook runs the same checks. `make check` is the gate. Prove
 user-facing changes with the `verify-agentic-research-loop` skill at
 `.agents/skills/verify-agentic-research-loop/`.
 
@@ -30,10 +30,8 @@ Stop. Say which recorded decision the request reverses, such as
 ## Running research
 
 Start from a native `/goal` naming `research-goal`, or `research-spec` when scope needs discovery
-first. New cases are exploratory: a labelled quick answer. Use `--rigour decision` when the answer
-drives a decision that matters. When a goal is active, adopt the generated contract and finish in that session. Do not
-stop after scaffolding or submit a nested goal. Run the CLI from the repo root. The rules for a
-case live in one place, `uv run research contract method`.
+first. When a goal is active, adopt the generated contract and finish in that session. Do not stop
+after scaffolding or submit a nested goal. Run the CLI from the repo root.
 
 ## Safety and rigour
 
@@ -51,19 +49,12 @@ demo file needs a new independent review, because `test_validation.py` pins it.
 
 ## Enforced rules
 
-| Rule | Enforced by | Added |
-| --- | --- | --- |
-| No agent SDK import or process spawn in `src/`, `evals/`, or `scripts/`. Exempt: `scripts/check_agent_setup.py` (client version probes), `tests/`, and the verify helper (it runs `git`, `uv`, and the built CLI, and stubs agent clients) | `pyproject.toml` (ruff TID251), `rules/no-dynamic-import.yml` | 2026-11-04 |
-| Pydantic models subclass `StrictModel`, which forbids extra fields | `pyproject.toml` (ruff TID251), `rules/strict-model-only.yml` | 2026-11-04 |
-| cli above domain above I/O; nothing imports cli | `make boundaries` | 2026-11-04 |
-| Preserved SQL is read-only under every dialect reading | `tests/test_readonly_sql.py` | 2026-11-04 |
-| Decision cases: claims cite declared sources, arithmetic holds, and a named review exists | `tests/test_evidence.py` | 2026-11-04 |
-| An exploratory report needs its label, or an accepted gap shown in the report. Write SQL, unreadable SQL, and out-of-case artifacts cannot be accepted | `tests/test_validation.py`, `tests/test_gate_honesty.py` | 2026-11-04 |
-| A decision case filled with lorem ipsum or reviewer `claude` fails strict | `tests/test_end_to_end.py` | 2026-11-04 |
-| Each bundle meets a named read-only control from a closed set | `tests/test_readonly_contract.py` | 2026-11-04 |
-| Enabled servers match their bundle definition and control, apart from declared user-filled values | `tests/test_doctor.py` | 2026-11-04 |
-| `.mcp.json` ships neutral | `tests/test_mcp_configs_consistent.py` | 2026-11-04 |
-| Source lists are generated, never hand-edited | `tests/test_source_catalog.py` | 2026-11-04 |
-| No permission-bypass flag ships | `tests/test_readonly_contract.py` | 2026-11-04 |
-| Goal contract paths are absolute | `tests/test_cli.py` | 2026-11-04 |
-| Instruction lines stay under 500; relative doc links resolve; skills keep their hard limits | `tests/test_docs_contract.py` | 2026-11-04 |
+| Rule | Enforced by |
+| --- | --- |
+| No agent SDK import or process spawn in `src/`, `evals/`, or `scripts/`. Exempt: `scripts/check_agent_setup.py` (client version probes), `tests/`, and the verify helper (it runs `git`, `uv`, and the built CLI, and stubs agent clients) | `pyproject.toml` (ruff TID251), `rules/no-dynamic-import.yml` |
+| Preserved SQL is read-only under every dialect reading | `tests/test_readonly_sql.py` |
+| Write SQL, unreadable SQL, and out-of-case artifacts cannot be accepted | `tests/test_gate_honesty.py` |
+| Each bundle meets a named read-only control, and enabled servers match it | `tests/test_readonly_contract.py`, `tests/test_doctor.py` |
+| No permission-bypass flag ships | `tests/test_readonly_contract.py` |
+| Layers hold, and models forbid unknown fields | `make boundaries`, `pyproject.toml` (ruff TID251) |
+| Instruction text stays under its limit, and doc links resolve | `tests/test_docs_contract.py` |

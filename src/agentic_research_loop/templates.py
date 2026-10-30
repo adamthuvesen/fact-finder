@@ -5,7 +5,8 @@ from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
 
-from .layout import local_today
+from .io import extract_section
+from .layout import local_today, project_list_setting
 
 # A scaffolded section carries this token until someone replaces it. Validation
 # looks for the token, not for template wording, so real prose cannot trip it.
@@ -19,6 +20,28 @@ RIGOUR = re.compile(
 RESEARCH_SHAPE = re.compile(
     r"(?im)^[ \t]*-[ \t]*\*{0,2}Research shape\*{0,2}:\*{0,2}[ \t]*`?([A-Za-z-]+)`?"
 )
+
+
+# One line here adds a required brief section: `research init` scaffolds it and `validate`
+# checks it. A consumer adds its own with `required_brief_fields` in its pyproject.toml.
+REQUIRED_BRIEF_FIELDS = ("Question",)
+
+
+def required_brief_fields(repo_root: Path) -> tuple[str, ...]:
+    return (
+        *REQUIRED_BRIEF_FIELDS,
+        *project_list_setting(repo_root, "required_brief_fields"),
+    )
+
+
+def with_required_sections(brief: str, fields: tuple[str, ...]) -> str:
+    """Add a placeholder section for each field the brief lacks. A present one stays."""
+    missing = [name for name in fields if extract_section(brief, name) is None]
+    return (
+        brief.rstrip("\n")
+        + "\n"
+        + "".join(f"\n## {name}\n\n{PLACEHOLDER}\n" for name in missing)
+    )
 
 
 def format_list(items: Iterable[str]) -> str:
@@ -69,6 +92,7 @@ def brief_template(
     success_criteria: list[str],
     rigour: str = "exploratory",
     today: date | None = None,
+    required_fields: tuple[str, ...] = (),
 ) -> str:
     today_text = (today or local_today()).isoformat()
     root_cause_sections = (
@@ -89,7 +113,7 @@ def brief_template(
         if template == "root-cause"
         else ""
     )
-    return f"""# Research Brief
+    brief = f"""# Research Brief
 
 ## Question
 
@@ -131,6 +155,7 @@ All external systems are read-only. Do not send messages, change experiments, up
 
 {format_list(success_criteria)}
 """
+    return with_required_sections(brief, required_fields)
 
 
 def plan_template(*, template: str) -> str:
@@ -280,7 +305,7 @@ This case may use only these sources:
 
 {constraints}
 
-Run `uv run research contract method` and follow it.
+Run `uv run research contract method` and follow it. Run `uv run research next "{case_path}"` whenever you are unsure what comes next.
 """
     closing = f"""Run `uv run research validate "{case_path}" --strict`, fix every error, consider every warning, and surface the result and final conclusion in your last response. Validation checks integrity and arithmetic. It cannot prove semantic truth or reviewer independence. If a rigour check does not fit this case, tell the user; only a person may accept it with `--accept "<reason>"`. Stop early only if a concrete external dependency makes the case impossible to complete, and record that blocker in `report.md`."""
     if rigour == "exploratory":
@@ -290,17 +315,6 @@ This is an exploratory case: a quick, labelled answer. Keep the label line at th
 {closing}"""
     return f"""{opening}Run `uv run research contract evidence` and follow it.
 
-Maintain these artifacts as you work:
-- `notes.md` for hypotheses, dead ends, and open questions
-- `report.md` for the usable answer, reconciliation, rejected leads, and caveats, with a marker such as [C1] beside each material claim
-- `queries.sql` for every SQL query used, or an explicit reason no SQL was used
-- `source-objects.md` for every source object used
-- `evidence.json` for sources, source coverage, material claims, and checked calculations (`uv run research schema evidence` prints the schema)
-- preserved source excerpts or aggregate results inside the case, which `evidence.json` lists by SHA-256
-- `plan.md` only when a separate plan materially helps the investigation
-
-Every claim cites a declared source. Reconcile calculated contributions to the relevant source total when applicable. Do not count shared upstream data as independent corroboration. Continue until the report answers the question and every material claim is evidence-backed.
-
-Before finishing, delegate the final challenge to an independent subagent that did not conduct the research. Give it the final artifacts and preserved evidence for read-only review. It must identify the strongest competing explanation, the weakest-supported material claim, the most fragile source or calculation, and any material objection. Do not replace the independent review with your own assessment. Record its name or task id and its findings in `review.json` (`uv run research schema review`), using `uv run research review-snapshot "{case_path}"` for `reviewed_hashes`. A snapshot only prints hashes and approves nothing. Never replace a hash without a new review. A review that predates small edits warns; a material change needs another review.
+Continue until the report answers the question and every material claim is evidence-backed. Before finishing, delegate the final challenge to an independent subagent that did not conduct the research. Do not replace the independent review with your own assessment, and never replace a hash without a new review.
 
 {closing}"""

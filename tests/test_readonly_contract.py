@@ -2,7 +2,7 @@
 
 Each bundle names one control from a closed set. A config-checked control is tested
 against the server definition's structure. A declared control lives outside any file
-here, so its bundle's SETUP.md must name it. A test cannot prove the control is
+here, so its bundle's `setup` must name it. A test cannot prove the control is
 correct upstream. That needs live verification.
 """
 
@@ -19,6 +19,7 @@ from agentic_research_loop.source_bundles import (
     Bundle,
     available_bundles,
     load_bundle,
+    repo_sources_dir,
 )
 from agentic_research_loop.sources import CONFIG_CHECKED
 
@@ -29,23 +30,20 @@ def _bundles() -> list[Bundle]:
     return [load_bundle(ROOT, name) for name in available_bundles(ROOT)]
 
 
-def test_bundles_ship_inside_the_package_and_examples_points_at_them() -> None:
-    assert (ROOT / "examples" / "sources").resolve() == PACKAGED_BUNDLES.resolve()
+def test_bundles_ship_inside_the_package() -> None:
+    assert repo_sources_dir(ROOT) == PACKAGED_BUNDLES.resolve()
     assert len(_bundles()) >= 29
 
 
 @pytest.mark.parametrize("bundle", _bundles(), ids=lambda b: b.name)
 def test_bundle_satisfies_its_declared_control(bundle: Bundle, tmp_path: Path) -> None:
     control = bundle.spec.read_only_control
-    setup = (bundle.path / "SETUP.md").read_text(encoding="utf-8")
     if control.mechanism in CONFIG_CHECKED:
         assert bundle.server is not None, "a config-checked control needs a server"
         if bundle.server.support_files:
             (tmp_path / "config").mkdir()
-            for name in bundle.server.support_files:
-                (tmp_path / "config" / name).write_bytes(
-                    (bundle.path / name).read_bytes()
-                )
+            for name, content in bundle.server.support_files.items():
+                (tmp_path / "config" / name).write_text(content, encoding="utf-8")
         assert (
             control_problem(
                 tmp_path, control, url=bundle.server.url or "", args=bundle.server.args
@@ -53,7 +51,7 @@ def test_bundle_satisfies_its_declared_control(bundle: Bundle, tmp_path: Path) -
             is None
         )
     else:
-        assert control.detail.lower() in setup.lower()
+        assert control.detail.lower() in bundle.setup.lower()
 
 
 def _server_bundles() -> list[Bundle]:
@@ -64,26 +62,23 @@ def _server_bundles() -> list[Bundle]:
 def test_write_tools_are_named_in_setup(bundle: Bundle) -> None:
     """A deny entry must come from the bundle's documentation, never from a guess."""
     assert bundle.server is not None
-    setup = (bundle.path / "SETUP.md").read_text(encoding="utf-8")
     for tool in bundle.server.write_tools:
-        assert tool in setup, tool
+        assert tool in bundle.setup, tool
 
 
 @pytest.mark.parametrize("bundle", _server_bundles(), ids=lambda b: b.name)
 def test_every_placeholder_in_a_definition_is_declared(bundle: Bundle) -> None:
     """Doctor can flag only declared placeholders, so an undeclared one goes unnoticed."""
     assert bundle.server is not None
-    text = bundle.server.model_dump_json(exclude={"placeholders"})
+    text = bundle.server.model_dump_json(exclude={"placeholders", "support_files"})
     found = re.findall(r"YOUR[-_][A-Z_-]+|/absolute/path/\S+?\.\w+", text)
     assert set(found) == set(bundle.server.placeholders)
 
 
 def test_shipped_snowflake_allowlist_is_read_only() -> None:
-    text = (PACKAGED_BUNDLES / "snowflake" / "snowflake-mcp-tools.yaml").read_text(
-        encoding="utf-8"
-    )
-
-    assert allowlist_problem(text) is None
+    server = load_bundle(ROOT, "snowflake").server
+    assert server is not None
+    assert allowlist_problem(server.support_files["snowflake-mcp-tools.yaml"]) is None
 
 
 _SKIP_DIRS = {

@@ -16,15 +16,16 @@ htmlcov/
 # Research cases are local by default — force-add to commit: git add -f research/<case>/
 research/
 
-# Personal, per-machine Claude settings, and the deny list `research setup` writes
+# Personal, per-machine Claude settings
 .claude/settings.local.json
-.claude/settings.json
 
-# Local-only per-tool MCP configs, created by `research source enable`
-.cursor/
-.codex/
+# Local-only per-tool MCP configs, created by `research source enable`. The edit hooks are shared.
+.mcp.json
+.cursor/*
+!.cursor/hooks.json
+.codex/*
+!.codex/hooks.json
 
-# User-defined sources (copy config/sources.json.example to start)
 config/sources.json
 # Copied from the bundle by `research source enable snowflake`
 config/snowflake-mcp-tools.yaml

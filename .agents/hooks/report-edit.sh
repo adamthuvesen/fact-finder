@@ -1,0 +1,1 @@
+../../src/agentic_research_loop/hooks/report-edit.sh

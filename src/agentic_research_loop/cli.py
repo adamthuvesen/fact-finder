@@ -4,21 +4,34 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
+from typing import cast
 
+from .agent_hooks import edited_files, hook_report
 from .doctor import run_doctor
 from .evidence import Evidence, Review, review_snapshot
+from .feedback import is_problem, problem
 from .google_api import GoogleApiError, GoogleAuthError, ga4_report, gsc_query
 from .layout import find_repo_root, project_setting
+from .lint import lint_file, local_case_problems
+from .next_step import READ_FAILURES, case_status, next_for_case, next_for_repo
 from .repo_setup import setup_repo
 from .research import case_paths, create_manual, render_goal, resolve_case_path
-from .source_bundles import disable_bundle, enable_bundle, render_bundle_list
+from .source_bundles import (
+    disable_bundle,
+    enable_bundle,
+    render_bundle,
+    render_bundle_list,
+    scaffold_bundle,
+)
+from .sources import Client
 from .validation import GATE_LIMITS, Assessment, accept_findings, assess_case
 
+DATE_ORDER = problem("--start-date is after --end-date", "swap the two dates")
 CONTRACT_DIR = Path(__file__).parent / "contract"
 CONTRACT_FILES = {"method": "method", "evidence": "evidence-contract"}
-READ_FAILURES = (OSError, UnicodeError, ValueError, RecursionError)
 
 
 def _positive_int(value: str) -> int:
@@ -104,6 +117,55 @@ def _add_init_arguments(init_parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_google_parsers(
+    add_parser: Callable[..., argparse.ArgumentParser],
+) -> None:
+    gsc_parser = add_parser(
+        "gsc", help="Query the Search Console API. Prefer a warehouse copy when synced."
+    )
+    gsc_parser.add_argument("--start-date", required=True, type=_iso_date)
+    gsc_parser.add_argument("--end-date", required=True, type=_iso_date)
+    gsc_parser.add_argument(
+        "--dimensions",
+        required=True,
+        type=_comma_list,
+        help="Comma-separated: query,page,country,device,searchAppearance,date",
+    )
+    gsc_parser.add_argument("--row-limit", type=_positive_int, default=100)
+    gsc_parser.add_argument("--start-row", type=_non_negative_int, default=0)
+
+    ga4_parser = add_parser("ga4", help="Query the GA4 Data API")
+    ga4_parser.add_argument("--start-date", required=True, type=_iso_date)
+    ga4_parser.add_argument("--end-date", required=True, type=_iso_date)
+    ga4_parser.add_argument("--dimensions", required=True, type=_comma_list)
+    ga4_parser.add_argument("--metrics", required=True, type=_comma_list)
+    ga4_parser.add_argument("--limit", type=_positive_int, default=25)
+    ga4_parser.add_argument("--offset", type=_non_negative_int, default=0)
+    ga4_parser.add_argument("--order-by", help="Metric name to sort descending")
+
+
+def _add_source_parser(
+    add_parser: Callable[..., argparse.ArgumentParser],
+) -> None:
+    source_parser = add_parser("source", help="Manage opt-in source bundles")
+    source_sub = source_parser.add_subparsers(dest="source_command", required=True)
+    enable_parser = source_sub.add_parser(
+        "enable", help="Wire a bundle into config/sources.json and the client configs"
+    )
+    enable_parser.add_argument("name", help="Bundle name, e.g. github")
+    disable_parser = source_sub.add_parser("disable", help="Remove a bundle's wiring")
+    disable_parser.add_argument("name", help="Bundle name")
+    source_sub.add_parser("list", help="List bundles and whether they are enabled")
+    show_parser = source_sub.add_parser(
+        "show", help="Print a bundle's control, write tools, and setup steps"
+    )
+    show_parser.add_argument("name", help="Bundle name")
+    new_parser = source_sub.add_parser(
+        "new", help="Create a bundle that loads, with each field to fill marked TODO"
+    )
+    new_parser.add_argument("name", help="Bundle name, e.g. zendesk")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="research",
@@ -140,6 +202,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("list", help="List cases with their status")
 
+    next_parser = subparsers.add_parser(
+        "next", help="Print the next useful step and its exact command. Advice only."
+    )
+    next_parser.add_argument("case", nargs="?", help="Case id or path")
+
+    lint_parser = subparsers.add_parser(
+        "lint", help="Report only what is wrong with these case or bundle files"
+    )
+    lint_parser.add_argument("files", nargs="*", help="Files just edited")
+    lint_parser.add_argument(
+        "--local-cases",
+        action="store_true",
+        help="Also check every case under research/, which git ignores, for hard failures.",
+    )
+
+    hook_parser = subparsers.add_parser(
+        "hook", help="Plumbing for the edit hook that `research setup` installs"
+    )
+    hook_sub = hook_parser.add_subparsers(dest="hook_command", required=True)
+    hook_sub.add_parser("files", help="Print the edited files from hook JSON on stdin")
+    hook_report_parser = hook_sub.add_parser(
+        "report", help="Wrap stdin in the JSON a client expects"
+    )
+    hook_report_parser.add_argument("client", choices=("claude", "cursor", "codex"))
+
     schema_parser = subparsers.add_parser(
         "schema", help="Print an evidence contract JSON schema"
     )
@@ -163,38 +250,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Check enabled servers against their read-only control. Checks config only.",
     )
 
-    gsc_parser = subparsers.add_parser(
-        "gsc", help="Query the Search Console API. Prefer a warehouse copy when synced."
-    )
-    gsc_parser.add_argument("--start-date", required=True, type=_iso_date)
-    gsc_parser.add_argument("--end-date", required=True, type=_iso_date)
-    gsc_parser.add_argument(
-        "--dimensions",
-        required=True,
-        type=_comma_list,
-        help="Comma-separated: query,page,country,device,searchAppearance,date",
-    )
-    gsc_parser.add_argument("--row-limit", type=_positive_int, default=100)
-    gsc_parser.add_argument("--start-row", type=_non_negative_int, default=0)
-
-    ga4_parser = subparsers.add_parser("ga4", help="Query the GA4 Data API")
-    ga4_parser.add_argument("--start-date", required=True, type=_iso_date)
-    ga4_parser.add_argument("--end-date", required=True, type=_iso_date)
-    ga4_parser.add_argument("--dimensions", required=True, type=_comma_list)
-    ga4_parser.add_argument("--metrics", required=True, type=_comma_list)
-    ga4_parser.add_argument("--limit", type=_positive_int, default=25)
-    ga4_parser.add_argument("--offset", type=_non_negative_int, default=0)
-    ga4_parser.add_argument("--order-by", help="Metric name to sort descending")
-
-    source_parser = subparsers.add_parser("source", help="Manage opt-in source bundles")
-    source_sub = source_parser.add_subparsers(dest="source_command", required=True)
-    enable_parser = source_sub.add_parser(
-        "enable", help="Wire a bundle into config/sources.json and the client configs"
-    )
-    enable_parser.add_argument("name", help="Bundle name, e.g. github")
-    disable_parser = source_sub.add_parser("disable", help="Remove a bundle's wiring")
-    disable_parser.add_argument("name", help="Bundle name")
-    source_sub.add_parser("list", help="List bundles and whether they are enabled")
+    _add_google_parsers(subparsers.add_parser)
+    _add_source_parser(subparsers.add_parser)
 
     return parser
 
@@ -215,12 +272,14 @@ def _init_case(repo_root: Path, args: argparse.Namespace) -> int:
     )
     print(f"Created case: {result.case_id}")
     print(f"Path: {result.path}")
-    print(f"Next: uv run research goal {result.case_id}")
+    print(f"Next: uv run research next {result.case_id}")
     return 0
 
 
 def _empty_assessment(error: str) -> Assessment:
-    return Assessment(rigour="decision", strict=True, errors=[error], warnings=[])
+    return Assessment(
+        rigour="decision", strict=True, errors=error.split("\n"), warnings=[]
+    )
 
 
 def _assess(repo_root: Path, args: argparse.Namespace) -> tuple[str, Assessment]:
@@ -238,7 +297,11 @@ def _assess(repo_root: Path, args: argparse.Namespace) -> tuple[str, Assessment]
 
 def _validate_command(repo_root: Path, args: argparse.Namespace) -> int:
     if (args.accept is not None or args.pinned) and not args.strict:
-        raise ValueError("--accept and --pinned need --strict")
+        raise ValueError(
+            problem(
+                "--accept and --pinned need --strict", "add --strict to the command"
+            )
+        )
     case, result = _assess(repo_root, args)
     if args.json:
         print(
@@ -260,11 +323,11 @@ def _validate_command(repo_root: Path, args: argparse.Namespace) -> int:
         return 1 if result.errors else 0
     if result.errors:
         print("Validation failed:")
-        for error in result.errors:
-            print(f"- {error}")
+        print("\n".join(result.errors))
     if args.strict:
-        for warning in result.warnings:
-            print(f"Warning: {warning}")
+        if result.warnings:
+            print("Warnings:")
+            print("\n".join(result.warnings))
     elif result.warnings:
         print(f"{len(result.warnings)} items remain for --strict to report.")
     if result.errors:
@@ -276,22 +339,6 @@ def _validate_command(repo_root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _case_status(case_path: Path) -> str:
-    try:
-        if assess_case(case_path).errors:
-            return "invalid"
-        result = assess_case(case_path, strict_completion=True)
-    except READ_FAILURES:
-        return "invalid"
-    if result.errors:
-        return "in-progress"
-    if result.accepted:
-        return f"{result.rigour}-accepted"
-    if result.review_is_stale:
-        return f"{result.rigour}-stale-review"
-    return f"{result.rigour}-complete"
-
-
 def _list_command(repo_root: Path, _args: argparse.Namespace) -> int:
     cases = case_paths(repo_root)
     if not cases:
@@ -299,7 +346,7 @@ def _list_command(repo_root: Path, _args: argparse.Namespace) -> int:
         return 0
     width = max(len(path.name) for path in cases)
     for path in cases:
-        print(f"{path.name:<{width}}  {_case_status(path)}")
+        print(f"{path.name:<{width}}  {case_status(path)}")
     return 0
 
 
@@ -319,32 +366,72 @@ def _doctor_command(repo_root: Path, _args: argparse.Namespace) -> int:
 def _print_actions(actions: list[str]) -> int:
     for line in actions:
         print(f"- {line}")
-    return 0
+    return 1 if any(is_problem(line) for line in actions) else 0
 
 
 def _source_command(repo_root: Path, args: argparse.Namespace) -> int:
     if args.source_command == "list":
         print(render_bundle_list(repo_root))
         return 0
+    if args.source_command == "show":
+        print(render_bundle(repo_root, args.name))
+        return 0
+    if args.source_command == "new":
+        return _print_actions(scaffold_bundle(repo_root, args.name))
     action = enable_bundle if args.source_command == "enable" else disable_bundle
     return _print_actions(
         action(repo_root, args.name) or [f"'{args.name}' was not enabled"]
     )
 
 
+def _next_command(repo_root: Path, args: argparse.Namespace) -> int:
+    lines = (
+        next_for_case(resolve_case_path(repo_root, args.case))
+        if args.case
+        else next_for_repo(repo_root)
+    )
+    print("\n".join(lines))
+    return 0
+
+
+def _lint_command(repo_root: Path, args: argparse.Namespace) -> int:
+    if not args.files and not args.local_cases:
+        raise ValueError(
+            problem("no file to lint", "pass a file, or use --local-cases")
+        )
+    problems = [entry for path in args.files for entry in lint_file(path, repo_root)]
+    if args.local_cases:
+        problems.extend(local_case_problems(repo_root))
+    if problems:
+        print("\n".join(problems))
+    return 1 if problems else 0
+
+
+def _hook_command(repo_root: Path, args: argparse.Namespace) -> int:
+    if args.hook_command == "files":
+        print("\n".join(edited_files(sys.stdin.read(), repo_root)))
+    else:
+        client = cast("Client", args.client)
+        print(hook_report(client, sys.stdin.read().strip()))
+    return 0
+
+
 def _required_setting(repo_root: Path, *, env: str, setting: str, example: str) -> str:
     value = os.environ.get(env) or project_setting(repo_root, setting)
     if not value:
         raise GoogleApiError(
-            f"{env} is not set. Set it, or set {setting} under "
-            f"[tool.agentic-research-loop] in pyproject.toml. Example: {example}"
+            problem(
+                f"{env} is not set",
+                f"set it, or set {setting} under [tool.agentic-research-loop] in "
+                f"pyproject.toml. Example: {example}",
+            )
         )
     return value
 
 
 def _gsc_command(repo_root: Path, args: argparse.Namespace) -> int:
     if args.start_date > args.end_date:
-        raise ValueError("--start-date must be on or before --end-date")
+        raise ValueError(DATE_ORDER)
     result = gsc_query(
         site=_required_setting(
             repo_root,
@@ -364,7 +451,7 @@ def _gsc_command(repo_root: Path, args: argparse.Namespace) -> int:
 
 def _ga4_command(repo_root: Path, args: argparse.Namespace) -> int:
     if args.start_date > args.end_date:
-        raise ValueError("--start-date must be on or before --end-date")
+        raise ValueError(DATE_ORDER)
     result = ga4_report(
         property_id=_required_setting(
             repo_root,
@@ -419,6 +506,9 @@ COMMANDS = {
     "gsc": _gsc_command,
     "ga4": _ga4_command,
     "source": _source_command,
+    "next": _next_command,
+    "lint": _lint_command,
+    "hook": _hook_command,
 }
 
 
@@ -433,5 +523,5 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         return COMMANDS[args.command](find_repo_root(), args)
     except (GoogleApiError, GoogleAuthError, *READ_FAILURES) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        print(exc, file=sys.stderr)
         return 1

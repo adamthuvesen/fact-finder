@@ -1,9 +1,13 @@
 RUN := uv run --locked
 
-.PHONY: check audit lock lint types deps dead boundaries rules test workflows secrets vulnerabilities
+.PHONY: check quick audit lock lint types deps dead boundaries rules test workflows secrets vulnerabilities
 
 # Offline gate. CI runs the same targets.
 check: lock lint types deps dead boundaries rules test
+
+# Only what changed, in about two seconds. The edit hook runs the same script on one file.
+quick:
+	@sh .agents/hooks/report-edit.sh
 
 # Needs the network for the vulnerability database.
 audit: workflows secrets vulnerabilities

@@ -153,7 +153,9 @@ def drive_case_lifecycle(drive: Any) -> None:
     case = new_case(drive, "lifecycle")
     drive.expect(["goal", case.name], 0, "/goal", str(case))
     drive.expect(["validate", case.name], 0, "Validation passed")
-    drive.expect(["validate", case.name, "--strict"], 1, "Missing review.json")
+    drive.expect(
+        ["validate", case.name, "--strict"], 1, "independent review is missing"
+    )
     drive.expect(["list"], 0, "lifecycle  in-progress")
     fill(drive, case)
     drive.expect(["validate", case.name, "--strict"], 0, "cannot be proved by a gate")
@@ -202,8 +204,8 @@ def drive_lorem_gate(drive: Any) -> None:
     drive.expect(
         ["validate", case.name, "--strict"],
         1,
-        "Missing review.json",
-        "source-objects.md entry needs",
+        "independent review is missing",
+        "has no locator or access date",
     )
     named = new_case(drive, "named")
     fill(drive, named, reviewer="claude")
@@ -237,7 +239,7 @@ def drive_sources(drive: Any) -> None:
     drive.expect(["source", "enable", "stripe"], 0, "denied 4 write tools")
     drive.check(
         "mcp__stripe__create_refund"
-        in (drive.target / ".claude/settings.json").read_text(),
+        in (drive.target / ".claude/settings.local.json").read_text(),
         "no Claude deny rule",
     )
     drive.check(
@@ -250,7 +252,7 @@ def drive_sources(drive: Any) -> None:
     mcp = drive.target / ".mcp.json"
     good = mcp.read_text()
     mcp.write_text(good.replace("/mcp/readonly", "/mcp"))
-    drive.expect(["doctor"], 1, "url does not end with /readonly")
+    drive.expect(["doctor"], 1, "url does not end with /readonly", "Fix:")
     mcp.write_text(good)
     drive.expect(["source", "disable", "stripe"], 0, "removed source 'stripe'")
     sources = drive.target / "config" / "sources.json"
@@ -259,7 +261,8 @@ def drive_sources(drive: Any) -> None:
     drive.expect(
         ["source", "disable", "github"],
         1,
-        "config/sources.json is invalid",
+        "config/sources.json",
+        "Fix:",
         forbid=("Traceback",),
     )
     sources.write_text(kept)
@@ -267,10 +270,10 @@ def drive_sources(drive: Any) -> None:
 
 
 def drive_consumer_setup(drive: Any) -> None:
-    drive.expect(["setup"], 0, "linked skill research-goal")
+    drive.expect(["setup"], 0, "linked research-goal into .agents/skills")
     drive.expect(["setup"], 0, "nothing to do", forbid=("wired",))
     drive.expect(["contract", "method"], 0, "# Research method")
-    drive.expect(["contract", "evidence"], 0, "query_id")
+    drive.expect(["contract", "evidence"], 0, "review-snapshot")
     drive.check(
         any(
             drive.target.parent.glob(
@@ -296,7 +299,38 @@ def drive_consumer_setup(drive: Any) -> None:
     drive.expect(["source", "list"], 0, "azure-devops", "google-drive", "microsoft-365")
 
 
+def drive_agent_feedback(drive: Any) -> None:
+    """Scaffold a source, follow `next`, and get concrete feedback from the installed hook."""
+    drive.expect(["source", "new", "zendesk"], 0, "zendesk.toml")
+    drive.expect(["source", "enable", "zendesk"], 1, "still marked TODO", "Fix:")
+    bundle = drive.target / "examples" / "sources" / "zendesk.toml"
+    drive.expect(["lint", str(bundle)], 1, "still marked TODO")
+    bundle.write_text(bundle.read_text().replace("TODO: ", ""))
+    drive.expect(["source", "enable", "zendesk"], 0, "added source 'zendesk'")
+    drive.expect(["source", "disable", "zendesk"], 0)
+    drive.expect(["next"], 0, "research init <slug>")
+    drive.expect(
+        ["init", "q", "--local-only", "--question", "Why?"], 0, "research next"
+    )
+    case = next((drive.target / "research").glob("*-q"))
+    drive.expect(["next", case.name], 0, "research goal")
+    (case / "queries.sql").write_text("-- note\nDROP TABLE t;\n")
+    drive.expect(["next", case.name], 0, "queries.sql:2: not read-only", "Fix:")
+    drive.expect(["lint", str(case / "queries.sql")], 1, "queries.sql:2: not read-only")
+    drive.expect(["setup"], 0, "added the edit hook to .claude/settings.json")
+    drive.check(
+        "report-edit.sh claude"
+        in (drive.target / ".claude" / "settings.json").read_text(),
+        "no Claude hook",
+    )
+    drive.check(
+        (drive.target / ".agents" / "hooks" / "report-edit.sh").exists(),
+        "the hook script did not link from the wheel",
+    )
+
+
 FEATURES = {
+    "agent-feedback": drive_agent_feedback,
     "case-lifecycle": drive_case_lifecycle,
     "quick-answer": drive_quick_answer,
     "lorem-gate": drive_lorem_gate,

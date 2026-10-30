@@ -70,49 +70,49 @@ ignore = [
 ]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"anthropic".msg = "No agent SDK. The native goal owns execution."
-"claude_agent_sdk".msg = "No agent SDK. The native goal owns execution."
-"claude_code_sdk".msg = "No agent SDK. The native goal owns execution."
-"codex".msg = "No agent SDK. The native goal owns execution."
-"openai".msg = "No agent SDK. The native goal owns execution."
-"openai_agents".msg = "No agent SDK. The native goal owns execution."
-"subprocess".msg = "No process spawn. That is how an agent runner starts."
-"multiprocessing".msg = "No process spawn. That is how an agent runner starts."
-"pty".msg = "No process spawn. That is how an agent runner starts."
-"asyncio.create_subprocess_exec".msg = "No process spawn. That is how an agent runner starts."
-"asyncio.create_subprocess_shell".msg = "No process spawn. That is how an agent runner starts."
-"os.system".msg = "No process spawn. That is how an agent runner starts."
-"os.popen".msg = "No process spawn. That is how an agent runner starts."
-"os.fork".msg = "No process spawn. That is how an agent runner starts."
-"os.forkpty".msg = "No process spawn. That is how an agent runner starts."
-"os.posix_spawn".msg = "No process spawn. That is how an agent runner starts."
-"os.posix_spawnp".msg = "No process spawn. That is how an agent runner starts."
-"os.spawnl".msg = "No process spawn. That is how an agent runner starts."
-"os.spawnle".msg = "No process spawn. That is how an agent runner starts."
-"os.spawnlp".msg = "No process spawn. That is how an agent runner starts."
-"os.spawnv".msg = "No process spawn. That is how an agent runner starts."
-"os.spawnve".msg = "No process spawn. That is how an agent runner starts."
-"os.spawnvp".msg = "No process spawn. That is how an agent runner starts."
-"os.execl".msg = "No process spawn. That is how an agent runner starts."
-"os.execv".msg = "No process spawn. That is how an agent runner starts."
-"os.execve".msg = "No process spawn. That is how an agent runner starts."
-"os.execvp".msg = "No process spawn. That is how an agent runner starts."
-"concurrent.futures.ProcessPoolExecutor".msg = "No process spawn. That is how an agent runner starts."
-"concurrent.futures.process".msg = "No process spawn. That is how an agent runner starts."
-"os.execle".msg = "No process spawn. That is how an agent runner starts."
-"os.execlp".msg = "No process spawn. That is how an agent runner starts."
-"os.execlpe".msg = "No process spawn. That is how an agent runner starts."
-"os.execvpe".msg = "No process spawn. That is how an agent runner starts."
-"os.spawnlpe".msg = "No process spawn. That is how an agent runner starts."
-"os.spawnvpe".msg = "No process spawn. That is how an agent runner starts."
-"asyncio.subprocess".msg = "No process spawn. That is how an agent runner starts."
-"pexpect".msg = "No process spawn. That is how an agent runner starts."
-"plumbum".msg = "No process spawn. That is how an agent runner starts."
-"sh".msg = "No process spawn. That is how an agent runner starts."
-"invoke".msg = "No process spawn. That is how an agent runner starts."
-"webbrowser".msg = "No process spawn. That is how an agent runner starts."
-"importlib.import_module".msg = "No dynamic import. It hides the bans above."
-"pydantic.BaseModel".msg = "Subclass strict_model.StrictModel, which forbids extra fields."
+"anthropic".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
+"claude_agent_sdk".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
+"claude_code_sdk".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
+"codex".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
+"openai".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
+"openai_agents".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
+"subprocess".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"multiprocessing".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"pty".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"asyncio.create_subprocess_exec".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"asyncio.create_subprocess_shell".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.system".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.popen".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.fork".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.forkpty".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.posix_spawn".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.posix_spawnp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.spawnl".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.spawnle".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.spawnlp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.spawnv".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.spawnve".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.spawnvp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.execl".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.execv".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.execve".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.execvp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"concurrent.futures.ProcessPoolExecutor".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"concurrent.futures.process".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.execle".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.execlp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.execlpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.execvpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.spawnlpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"os.spawnvpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"asyncio.subprocess".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"pexpect".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"plumbum".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"sh".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"invoke".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"webbrowser".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
+"importlib.import_module".msg = "No dynamic import: it hides the bans above. Fix: write a plain import statement."
+"pydantic.BaseModel".msg = "Plain BaseModel allows unknown fields. Fix: subclass strict_model.StrictModel."
 
 [tool.ruff.lint.per-file-ignores]
 # The CLI's job is to print.
@@ -149,22 +149,31 @@ source = ["agentic_research_loop"]
 [tool.coverage.report]
 precision = 2
 
+[tool.uv]
+# A user-level `only-managed` makes uv rebuild `.venv` when it was built under another
+# XDG_DATA_HOME, because uv keeps its managed Python there. This value accepts the existing `.venv`.
+python-preference = "managed"
+
+[tool.agentic-research-loop]
+sources_dir = "src/agentic_research_loop/bundles"
+
 [tool.importlinter]
 root_package = "agentic_research_loop"
 
 [[tool.importlinter.contracts]]
-name = "cli above domain above I/O; nothing imports cli"
+name = "cli above domain above I/O; nothing imports cli. Fix: move the import or the code down a layer; the layers are listed in pyproject.toml"
 type = "layers"
 containers = ["agentic_research_loop"]
 exhaustive = true
 layers = [
     "__main__",
     "cli",
-    "research | validation | repo_setup | doctor | source_catalog",
-    "source_bundles",
+    "next_step | lint | repo_setup",
+    "research | validation | doctor",
+    "source_bundles | agent_hooks",
     "evidence | client_configs | templates | from_spec",
     "sources | readonly_sql",
     "strict_model",
     "layout",
-    "io | google_api",
+    "io | google_api | feedback",
 ]

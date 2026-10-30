@@ -48,7 +48,7 @@ def test_undecodable_queries_fail_closed_and_cannot_be_accepted(repo, capsys) ->
 
     assert main(["validate", case.name]) == 1
     assert main(["validate", case.name, "--strict", "--accept", "fine"]) == 1
-    assert "Could not read queries.sql" in capsys.readouterr().out
+    assert "queries.sql: could not read" in capsys.readouterr().out
     assert not (case / "overrides.json").exists()
     assert main(["list"]) == 0
     assert "invalid" in capsys.readouterr().out
@@ -76,7 +76,7 @@ def test_accepting_a_scaffold_names_every_gap_and_never_says_checked(
     assert code == 0
     assert "evidence checked" not in payload["label"]
     assert "not fully checked" in payload["label"]
-    assert "Missing review.json" in payload["label"]
+    assert "independent review is missing" in payload["label"]
     assert "because x" in payload["label"]
 
 
@@ -142,9 +142,9 @@ def test_report_carries_each_accepted_gap(repo, capsys) -> None:
 
     text = report.read_text(encoding="utf-8")
     assert "## Accepted Gaps" in text
-    assert "needs its label line" in text
+    assert "exploratory label line is missing" in text
     assert "shared by hand" in text
-    assert "needs its label line" in capsys.readouterr().out
+    assert "exploratory label line is missing" in capsys.readouterr().out
 
 
 def test_accepting_does_not_make_a_review_stale(repo, capsys) -> None:
@@ -204,7 +204,7 @@ def test_exploratory_blocked_verdict_warns(repo, capsys) -> None:
     code, payload = _json(capsys, case.name, "--strict")
 
     assert code == 0
-    assert "review.json verdict is blocked" in payload["warnings"]
+    assert any("verdict is blocked" in item for item in payload["warnings"])
 
 
 def test_a_quick_case_collapses_unfilled_sections(repo, capsys) -> None:
@@ -218,3 +218,69 @@ def test_a_quick_case_collapses_unfilled_sections(repo, capsys) -> None:
     assert "Evidence" in unfilled[0]
     assert len(payload["warnings"]) <= 3
     assert not any("placeholder under" in w for w in payload["warnings"])
+
+
+def _complete(repo_root: Path) -> Path:
+    case = repo_root / "research" / "2026-01-01-case"
+    fill_case(case)
+    return case
+
+
+def test_an_unreadable_query_file_in_a_decision_case_names_file_and_fix(
+    repo, capsys
+) -> None:
+    case = _complete(repo)
+    (case / "queries.sql").write_bytes(b"SELECT '\xe9';\n")
+
+    assert main(["validate", case.name, "--strict"]) == 1
+
+    out = capsys.readouterr().out
+    assert "queries.sql: could not read" in out
+    assert "Fix: save it as UTF-8" in out
+    assert "\ncodec" not in out
+
+
+def test_removing_a_hash_from_a_stale_review_cannot_end_up_fresh(repo, capsys) -> None:
+    case = _complete(repo)
+    with (case / "report.md").open("a", encoding="utf-8") as handle:
+        handle.write("\nA late edit.\n")
+    review = json.loads((case / "review.json").read_text(encoding="utf-8"))
+    del review["reviewed_hashes"]["report.md"]
+    (case / "review.json").write_text(json.dumps(review), encoding="utf-8")
+    capsys.readouterr()
+
+    assert main(["validate", case.name, "--strict", "--pinned"]) == 1
+
+    out = capsys.readouterr().out
+    assert "review fresh" not in out
+    assert "copy" not in out.lower()
+    assert "Fix: ask a new independent reviewer" in out
+    assert f"research review-snapshot {case.name}" in out
+
+
+def test_a_stale_review_fix_names_the_changed_file_and_exact_command(
+    repo, capsys
+) -> None:
+    case = _complete(repo)
+    with (case / "report.md").open("a", encoding="utf-8") as handle:
+        handle.write("\nA late edit.\n")
+    capsys.readouterr()
+
+    assert main(["validate", case.name, "--strict", "--pinned"]) == 1
+
+    out = capsys.readouterr().out
+    assert "stale for report.md" in out
+    assert "re-check report.md" in out
+    assert f"research review-snapshot {case.name}" in out
+
+
+def test_an_extra_hash_is_stale_and_never_labelled_fresh(repo, capsys) -> None:
+    case = _complete(repo)
+    review = json.loads((case / "review.json").read_text(encoding="utf-8"))
+    review["reviewed_hashes"]["gone.json"] = "0" * 64
+    (case / "review.json").write_text(json.dumps(review), encoding="utf-8")
+    capsys.readouterr()
+
+    assert main(["validate", case.name, "--strict", "--json"]) == 0
+
+    assert "fresh" not in json.loads(capsys.readouterr().out)["label"]

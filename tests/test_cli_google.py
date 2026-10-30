@@ -136,7 +136,7 @@ class TestGscCli:
             ]
         )
         assert exit_code == 1
-        assert "--start-date must be on or before" in capsys.readouterr().err
+        assert "--start-date is after --end-date" in capsys.readouterr().err
 
     @pytest.mark.parametrize(
         ("command", "variable"), [("gsc", "GSC_SITE"), ("ga4", "GA4_PROPERTY_ID")]

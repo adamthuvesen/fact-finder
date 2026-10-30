@@ -1,251 +1,73 @@
 # Investigation spec method
 
-The full method behind the `research-spec` skill. Follow the phases in order.
+## Frame
 
-## Phase 1 - Frame the question
+Reason before any tool call. Classify the shape:
 
-Reason about the question before any tool calls.
+- `root-cause`: why did X happen?
+- `comparison`: how does A differ from B?
+- `exploration`: what is the state of X?
 
-**Parse it.** Extract metric names, entities (product areas, segments, channels),
-time references, and causal language ("why", "because", "impact of").
+If the user pointed at a folder, pass it with `--context-path`. If they excluded a source, record
+it. Every enabled source otherwise stays on, because a source that looks irrelevant at planning
+time sometimes cracks the case later.
 
-**Classify the shape:**
-- `root-cause` - why did X happen? what caused Y? (declining, spiking, stagnating)
-- `comparison` - how does A differ from B? which is better?
-- `exploration` - what is the state of X? how does Y work?
+Decompose the target the way it is produced. This surfaces upstream sources that share no keywords
+with the metric name:
 
-`root-cause` carries a stronger design contract: the brief needs `## Hypotheses`,
-`## Known Confounders`, and `## Required Cross-Checks`, and every high-priority
-thread needs all four design fields. Validation enforces it.
-
-**Catch local context and exclusions.** If the user pointed at a folder or file,
-plan to read it early and pass it via `--context-path`. If they excluded a source
-("skip Slack", "no GA4"), record it; the default stance is that every enabled
-source stays on. Only disable on an explicit ask — a source that looks irrelevant
-at planning time sometimes cracks the case later.
-
-**Ask at most one clarifying question**, and only if the question is critically
-ambiguous (missing which metric, which product, or which timeframe). Otherwise
-proceed.
-
-### 1b. Map the causal system (reasoning, no tool calls)
-
-Before searching, decompose the target the way it is actually produced. This is
-what surfaces the upstream sources that share no keywords with the metric name but
-drive it. Write down:
-
-- **Decomposition**: how the target breaks down mechanically. A rate splits into
-  numerator and denominator; a funnel into stage conversions; revenue into
-  volume × price × mix; reliability into load, capacity, and retries; latency into
-  queue plus service time.
+- **Decomposition**: a rate splits into numerator and denominator, a funnel into stages, revenue
+  into volume, price, and mix, and latency into queue and service time.
 - **Upstream inputs**: what feeds each component, one or two levels up.
-- **Downstream effects**: what the target feeds, to scope what is in vs out.
-- **Search terms**: translate the chain into concrete keywords for discovery.
-  Search every upstream and downstream concept, not only the metric name.
+- **Downstream effects**: what the target feeds, to scope what is out.
+- **Search terms**: search every upstream and downstream concept, not only the metric name.
 
-## Phase 2 - Discover what you can actually use
+## Discover
 
-### 2a. Enumerate the usable source set (do this first)
+The usable set is the enabled bundles, web search, and `--context-path` folders. If the causal
+chain needs a source that is not enabled, say so and suggest `research source enable <name>`. Do
+not design around a hole. Discover in parallel where you can:
 
-```bash
-uv run research source list      # which bundles are enabled (* = enabled)
-```
+- **Warehouse and metrics**: discover objects live and confirm grain and definitions. The semantic
+  layer is a convenience, not a boundary.
+- **Experiments and flags**: scan the window for rollouts. This is the most common hidden cause of
+  a metric shift, and even a null experiment rules a surface out.
+- **Docs, chat, and issues**: search for retros, decisions, incidents, and what shipped.
+- **Local context**: read it first. It is usually curated and high-signal.
 
-The usable set is: the **enabled** bundles, plus the built-in **web search**, plus
-any folders the user attached with `--context-path`. Everything else is off the
-table for this case. See [references/source-families.md](source-families.md)
-for the map from question type → source family → example bundles, and the
-warehouse-vs-live nuance (GSC, GA4).
+A warehouse copy of Search Console or GA4 beats the live API, unless you need fresher data or an
+API-only dimension. Size the sweep to the shape: a narrow lookup needs one or two sources.
 
-If the causal chain needs a family that is **not** enabled, note it now. You will
-flag it at the orientation checkpoint and suggest `research source enable <name>`,
-rather than designing around a hole.
+Print a short summary: what the target means, which sources are confirmed, recent changes, known
+confounders, and any important source that is off.
 
-### 2b. Orient across the usable sources
+## Design
 
-Discover live, in parallel where you can. Use whatever tools the enabled MCP
-servers expose; discover their real tool, object, and schema names rather than
-assuming. By family:
+Hold several rival explanations at once and design tests that exclude them.
 
-- **Warehouse / metrics**: discover objects live (semantic views or `SHOW TABLES`
-  / `DESCRIBE`), confirm grain, dimensions, and metrics. The semantic layer is a
-  convenience, not a boundary. Drop to fact/staging tables when they hold the
-  signal. Confirm metric definitions; do not guess them.
-- **Experiments / flags**: scan the timeframe for rollouts, A/B tests, and flag
-  changes. This is the most common hidden cause of a metric shift; even a null
-  experiment rules a surface out.
-- **Docs / comms / issue tracking**: search strategy, retros, decisions, incident
-  threads, and what shipped during the window.
-- **Local context**: read attached folders/files now; they are usually curated,
-  high-signal context.
+Write 3 to 5 ranked hypotheses, or angles for exploration and comparison. Good ones are:
 
-Right-size the sweep to the shape: a narrow lookup needs one or two sources; a
-root-cause case earns a broad orientation.
-
-### 2c. Orientation summary
-
-Print a short paragraph to the user: what the target means and how it is produced;
-which sources are enabled and confirmed; key qualitative context (recent changes,
-discussions); known gotchas or confounders; and any causally important source that
-is **not enabled** (with the `research source enable <name>` suggestion). End with
-the `Sources ON` / `Sources OFF` lines from the checkpoint format below.
-
-## Phase 3 - Design the spec
-
-The core reasoning step. This applies **strong inference**: hold several rival
-explanations at once and design tests that exclude them, rather than
-accumulating support for one. Take your time.
-
-### Hypotheses (root-cause / trend) or angles (exploration / comparison)
-
-Generate **3-5 ranked hypotheses**. Good ones are:
-
-- **Competing, not overlapping**: together they roughly partition the explanation
-  space (include a measurement/attribution/freshness hypothesis; instrumentation
-  is a real cause, not a footnote). Confirming one should weaken another.
-- **Falsifiable**: each carries a **discriminating test** whose result points to
-  this hypothesis *or* its rival (not both), and a **kill criterion**: the
+- **Competing**: together they partition the explanation space. Include a measurement or freshness
+  hypothesis, because instrumentation is a real cause.
+- **Falsifiable**: each has a discriminating test whose result points to it or its rival, and an
   observation that would make you drop it.
-- **Ranked by prior**: most plausible first; mark weak-evidence ones speculative.
-- **Paired** with a strongest rival, an evidence target, and `status: untested`.
+- **Ranked**: most plausible first. Mark weak ones speculative.
 
-For exploration/comparison, frame these as investigation angles instead. The
-falsifiability bar relaxes, but ranking by information value still applies.
+Write research threads, 4 to 8 for root-cause and 1 to 3 for a narrow lookup:
 
-### Research threads
-
-Design **4-8 threads** using the format in
-[references/artifact-templates.md](artifact-templates.md). Principles:
-
-- **Anchor first**: T1 confirms the trend/event with hard numbers before anything
-  explains it. Don't skip quantification.
+- **Anchor first**: T1 confirms the event with hard numbers before anything explains it.
 - **Order by information gain**: sharpest discriminating test first, not easiest.
-- **Declare dependencies**: if T3 only makes sense after T1 confirms X, say so.
-- **Be specific about sources**: name the objects, not just the system —
-  `warehouse (signups_daily, sessions_daily)`, not "the warehouse". Every source
-  named must be enabled.
-- **Flag speculation**: mark threads that may not pan out and the signal to abandon.
+- **Declare dependencies**: if T3 only makes sense after T1, say so.
+- **Name objects**: `warehouse (signups_daily)`, not "the warehouse".
+- **Flag speculation**: name the signal to abandon a thread.
 
-### Remaining brief sections
+Success criteria are specific ("top 2 or 3 drivers ranked with quantified contribution"), never
+generic ("a clear answer").
 
-Define each concretely (templates in the reference):
+Present the hypotheses, threads, scope, shape, and sources on and off. Wait for edits.
 
-- **Deliverable**: what the answer is *for*.
-- **Scope**: explicit in/out boundaries, and the research shape.
-- **Definitions And Reconciliation**: the primary metric, population, time zone,
-  and comparison window, plus how the result reconciles to its source totals.
-- **Key Dates**: launches, incidents, config changes, seasonal boundaries, external events.
-- **Known Confounders**: effects that could mimic or mask the signal.
-- **Required Cross-Checks**: how key claims get a second-source check (this is the
-  triangulation commitment).
-- **Freshness Requirements**: which facts need live verification vs cached docs.
-- **Success Criteria**: specific and checkable ("top 2-3 drivers ranked with
-  quantified contribution"), never generic ("a clear answer").
+## Scaffold
 
-Leave `## Source Constraints` and `## Allowed Source Families` out of your draft.
-`research init` generates both from the source flags. The goal contract reads the first.
-`evidence.json` coverage must match the second.
-
-### Right-size by shape
-
-| Shape | Hypotheses | Threads | Design contract |
-|-------|-----------|---------|-----------------|
-| root-cause | 3-5, falsifiable | 4-8 | full + confounders + cross-checks (validator-enforced) |
-| comparison / exploration | 3-5 angles | 3-6 | lighter; rivals where they help |
-| narrow lookup | 1-3 | 1-3 | minimal; anchor + answer |
-
-### Checkpoint
-
-Present the spec compactly and **wait for confirmation or edits** before Phase 4:
-
-```
-Hypotheses: H1-H5 one-liners (with priority)
-Threads:    T1-T6 one-liners with sources
-Scope:      in / out, one line
-Template:   <template>
-Sources ON:  <enabled, comma-separated>
-Sources OFF: <source> (user excluded: <reason>), ...   # omit if none
-Not enabled but relevant: <source>; enable with `research source enable <name>`   # omit if none
-```
-
-Default is every enabled source ON. List a source OFF only if the user excluded
-it. The user can adjust here ("keep GSC on", "also skip Slack").
-
-## Phase 4 - Scaffold
-
-Write the three files into a tmpdir, call `research init --from-spec`, then
-**validate**. `research init` generates the `## Source Constraints` block from the
-source flags, plus `evidence.json`, `report.md`, `queries.sql`, and
-`source-objects.md`.
-
-**4a. Create the tmpdir.** Slug: short, lowercase, hyphenated (`active-users-decline`).
-
-```bash
-TMPDIR="$(mktemp -d -t research-spec-<slug>.XXXXXX)"
-```
-
-**4b-4d. Write `brief.md`, `plan.md`, `notes.md` into `$TMPDIR`** using
-[references/artifact-templates.md](artifact-templates.md). Fill every
-section with real Phase 2/3 content. The reference lists the exact headers and
-bold field names the validator parses. Match them verbatim.
-
-**4e. Build the init command from the *enabled* source set.** List the allowed
-sources with `--sources`, leaving out any the user excluded at the checkpoint.
-`--source-hint` works only for an allowed source. Use `--context-path` for attached
-folders and `--local-only` if the case is local-files-only.
-
-```bash
-uv run research init <slug> \
-  --question "<the specific question>" \
-  --template <template> \
-  --from-spec "$TMPDIR" \
-  [--context-path <path> ...] \
-  [--sources <comma-separated allowed sources>] \
-  [--source-hint <name>=<focus> ...]
-```
-
-**4f. Validate, then fix-and-revalidate.** `research init` prints the dated case
-id (`research/<date>-<slug>/`).
-
-```bash
-uv run research validate <date>-<slug>
-```
-
-If it reports issues (a missing `## Required Cross-Checks`, a high-priority thread
-without all four design fields), fix them directly in the scaffolded
-`research/<date>-<slug>/` files and re-run until it prints `Validation passed`.
-Editing the case files now is fine; `brief.md` becomes binding once the goal starts.
-
-**4g. Clean up** always, even on failure:
-
-```bash
-rm -rf "$TMPDIR"
-```
-
-## Phase 5 - Hand off to the goal
-
-Get the contract:
-
-```bash
-uv run research goal <date>-<slug>
-```
-
-Then dispatch on whether a goal is already running:
-
-- **A native `/goal` is active** → treat the generated contract as your operating
-  instructions and continue the investigation in this session. Do not submit it as
-  a nested slash command, return it to the user, or stop here.
-- **No native goal is active** → print the compact summary below plus the exact
-  generated `/goal` command in a code block, and stop. Do not begin the
-  investigation.
-
-```
-Investigation workspace ready:
-  Path:     research/<date>-<slug>/
-  Template: <template>
-  Validation: passed
-  Hypotheses: <count> | Threads: <count>
-  Sources: <enabled source list>
-```
-
-Offer to adjust anything before the goal starts.
+`research init` writes the brief and the plan for the shape, including the exact headings and
+fields validation reads. It generates `## Source Constraints` and `## Allowed Source Families` from
+the source flags, so do not edit those two. Fill the rest with your design. `brief.md` becomes
+binding once the goal starts.

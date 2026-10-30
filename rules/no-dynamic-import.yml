@@ -1,7 +1,7 @@
 id: no-dynamic-import
 language: python
 severity: error
-message: No __import__. It hides imports from the ruff banned-api list in pyproject.toml.
+message: "__import__ hides imports from the ruff banned-api list. Fix: write a plain import statement."
 files:
   - src/**/*.py
   - scripts/**/*.py

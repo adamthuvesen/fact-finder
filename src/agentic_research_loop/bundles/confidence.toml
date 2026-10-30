@@ -1,0 +1,32 @@
+setup = """
+**Server:** Confidence **experiments** MCP server - hosted, OAuth. Endpoint
+`https://mcp.confidence.dev/mcp/experiments`. (The separate `.../mcp/docs` server is
+Confidence SDK *documentation*, not a research data source - not wired here.)
+
+**Read-only enforcement (`credential-only`):** connect with read access; never modify
+experiments or flags. Read-only is enforced by the connected account's permissions;
+there is no read-only flag.
+
+2. Authenticate via `/mcp` (Claude) or Settings → MCP (Cursor); `codex mcp login
+   confidence-experiments` for Codex.
+
+## Notes
+
+- Covers rollout timing, experiment state, decision history, and results. Treat as a
+  primary source for rollout/experiment questions.
+"""
+
+[source]
+display_name = "Confidence"
+category = "product-analytics"
+transport = "http-oauth"
+plan_line = "Confidence for experiments, rollouts, and decision history."
+notes = "Query rollout timing, experiment state, decision history, and results via the Confidence experiments MCP server. Read-only — never modify experiments or flags."
+
+[source.read_only_control]
+mechanism = "credential"
+detail = "connected account's permissions"
+
+[server]
+server_name = "confidence-experiments"
+url = "https://mcp.confidence.dev/mcp/experiments"

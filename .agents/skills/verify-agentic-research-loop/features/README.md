@@ -34,3 +34,4 @@ unmet prerequisite. Never report one entry point as verified through another.
 | sql-gate | [sql-gate.md](sql-gate.md) | validate | 7be7160-dirty 2026-11-04 created |
 | sources | [sources.md](sources.md) | source, doctor | 7be7160-dirty 2026-11-04 created |
 | consumer-setup | [consumer-setup.md](consumer-setup.md) | setup, source | 7be7160-dirty 2026-11-04 created |
+| agent-feedback | [agent-feedback.md](agent-feedback.md) | next, lint, hook, source | cd7ec7c-dirty 2026-11-04 created |

@@ -130,14 +130,15 @@ def test_empty_template_is_not_a_completed_case(tmp_path: Path) -> None:
 
     assert validate_evidence(tmp_path) == []
     errors = validate_evidence(tmp_path, strict_completion=True)
-    assert any("at least one preserved source and claim" in error for error in errors)
-    assert any("Missing review.json" in error for error in errors)
+    assert any("no preserved source and claim yet" in error for error in errors)
+    assert any("independent review is missing" in error for error in errors)
 
 
 def test_case_without_evidence_cannot_complete(tmp_path: Path) -> None:
     assert validate_evidence(tmp_path) == []
     assert validate_evidence(tmp_path, strict_completion=True) == [
-        "Missing evidence.json"
+        "evidence.json: the evidence manifest is missing. Fix: see "
+        "`research schema evidence`, or create the case with `--rigour decision`."
     ]
 
 
@@ -245,7 +246,7 @@ def test_review_is_invalidated_by_any_reviewed_input_change(
 
     assert any(f"stale for {changed}" in error for error in errors)
     if changed == "monthly.json":
-        assert any("artifact sha256 mismatch" in error for error in errors)
+        assert any("sha256 does not match" in error for error in errors)
 
 
 def test_snapshot_cannot_fabricate_an_approval(tmp_path: Path) -> None:
@@ -255,7 +256,7 @@ def test_snapshot_cannot_fabricate_an_approval(tmp_path: Path) -> None:
     assert review_snapshot(tmp_path)
     assert not (tmp_path / "review.json").exists()
     assert any(
-        "Missing review.json" in e
+        "independent review is missing" in e
         for e in validate_evidence(tmp_path, strict_completion=True)
     )
 
@@ -290,7 +291,9 @@ def test_source_symlink_cannot_escape_case(tmp_path: Path) -> None:
     evidence["sources"][0]["artifact"] = "linked.json"
     _write_evidence(case, evidence)
 
-    assert any("escapes case directory" in error for error in validate_evidence(case))
+    assert any(
+        "escapes the case directory" in error for error in validate_evidence(case)
+    )
 
 
 @pytest.mark.parametrize(
@@ -301,7 +304,7 @@ def test_duplicate_identifiers_are_rejected(tmp_path: Path, collection: str) -> 
     evidence[collection].append(evidence[collection][0])
     _write_evidence(tmp_path, evidence)
 
-    assert "duplicate" in validate_evidence(tmp_path)[0]
+    assert "more than once" in validate_evidence(tmp_path)[0]
 
 
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", True])
@@ -317,7 +320,7 @@ def test_nonfinite_or_boolean_arithmetic_is_rejected(
         calculation[field] = value
     _write_evidence(tmp_path, evidence)
 
-    assert "Invalid evidence.json" in validate_evidence(tmp_path)[0]
+    assert "evidence.json" in validate_evidence(tmp_path)[0]
 
 
 @pytest.mark.parametrize(
@@ -347,16 +350,16 @@ def test_arithmetic_mismatch_fails_even_when_review_passes(tmp_path: Path) -> No
     _write_evidence(tmp_path, evidence)
     _write_review(tmp_path)
 
-    assert "D1: calculation result does not reconcile" in validate_evidence(tmp_path)
+    assert any("calculation D1 result" in e for e in validate_evidence(tmp_path))
 
 
 @pytest.mark.parametrize(
     "mutation,expected",
     [
-        ("zero", "denominator cannot be zero"),
+        ("zero", "ratio denominator is zero"),
         ("missing", "named denominator"),
         ("negative-tolerance", "greater than or equal to 0"),
-        ("units", "same unit"),
+        ("units", "different units"),
     ],
 )
 def test_invalid_calculation_contract_is_rejected(
@@ -381,12 +384,12 @@ def test_invalid_calculation_contract_is_rejected(
 @pytest.mark.parametrize(
     "mutation,expected",
     [
-        ("claim-source", "unknown source reference"),
-        ("input-source", "unknown source S2"),
-        ("calculation", "unknown calculation reference"),
-        ("coverage", "exactly match source families"),
-        ("marker", "match the claim id"),
-        ("extra", "Extra inputs are not permitted"),
+        ("claim-source", "cites S2, but only S1 is declared"),
+        ("input-source", "uses S2, but only S1 is declared"),
+        ("calculation", "cites D2, but only D1 is declared"),
+        ("coverage", "but coverage does not mark it used"),
+        ("marker", "report_marker is [C2]"),
+        ("extra", "is not a known field"),
         ("time", "time zone"),
     ],
 )
@@ -420,8 +423,8 @@ def test_report_markers_must_match_registered_claims(tmp_path: Path) -> None:
 
     errors = validate_evidence(tmp_path, strict_completion=True)
 
-    assert "report.md references unknown claim [C2]" in errors
-    assert "report.md is missing claim marker [C1]" in errors
+    assert any("marker [C2] names no claim" in error for error in errors)
+    assert any("claim marker [C1] is missing" in error for error in errors)
 
 
 def test_review_with_blocking_objection_cannot_pass(tmp_path: Path) -> None:
@@ -437,18 +440,16 @@ def test_review_with_blocking_objection_cannot_pass(tmp_path: Path) -> None:
         ],
     )
 
-    assert (
-        "passing review cannot contain blocking objections"
-        in validate_evidence(tmp_path)[0]
-    )
+    assert "verdict is pass with a blocking objection" in validate_evidence(tmp_path)[0]
 
 
 def test_blocked_review_prevents_strict_completion(tmp_path: Path) -> None:
     _complete_case(tmp_path)
     _write_review(tmp_path, verdict="blocked")
 
-    assert "review.json verdict is blocked" in validate_evidence(
-        tmp_path, strict_completion=True
+    assert any(
+        "review.json: verdict is blocked" in error
+        for error in validate_evidence(tmp_path, strict_completion=True)
     )
 
 
@@ -458,7 +459,9 @@ def test_review_must_include_source_artifact_hashes(tmp_path: Path) -> None:
     del hashes["monthly.json"]
     _write_review(tmp_path, reviewed_hashes=hashes)
 
-    assert any("all review inputs" in error for error in validate_evidence(tmp_path))
+    assert any(
+        "exactly the review inputs" in error for error in validate_evidence(tmp_path)
+    )
 
 
 def test_json_schema_is_available_for_authors() -> None:
@@ -475,7 +478,7 @@ def test_uncertain_claims_require_limitations(
     evidence["claims"][0].update({field: value, "limitations": []})
     _write_evidence(tmp_path, evidence)
 
-    assert "need explicit limitations" in validate_evidence(tmp_path)[0]
+    assert "with no limitations" in validate_evidence(tmp_path)[0]
 
 
 def test_decimal_overflow_is_a_validation_error(tmp_path: Path) -> None:

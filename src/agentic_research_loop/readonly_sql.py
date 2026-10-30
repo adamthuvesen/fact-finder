@@ -82,6 +82,13 @@ NO_SQL_REASON = re.compile(r"^\s*--\s*no sql used:\s*(\S.*)$", re.IGNORECASE | r
 QUERY_ID = re.compile(r"^\s*query_id:\s*(\S+)\s*$", re.IGNORECASE)
 EXECUTABLE_COMMENT = re.compile(r"/\*M?!", re.IGNORECASE)
 NESTED_COMMENT = re.compile(r"/\*(?:(?!\*/).)*?/\*", re.DOTALL)
+LOCKING_CLAUSE = re.compile(
+    r"\bFOR\s+(?:NO\s+KEY\s+UPDATE|KEY\s+SHARE|UPDATE|SHARE)\b"
+    r"(?:\s+OF\s+[\w.\"]+(?:\s*,\s*[\w.\"]+)*)?"
+    r"(?:\s+NOWAIT\b|\s+SKIP\s+LOCKED\b)?"
+    r"|\bLOCK\s+IN\s+SHARE\s+MODE\b",
+    re.IGNORECASE,
+)
 STATEMENT_KEYWORDS = frozenset(
     {
         "ALTER",
@@ -300,6 +307,44 @@ def _reject_unterminated(text: str) -> None:
                 Dialect.get_or_raise(dialect).tokenize(text)
             except TokenError as exc:
                 raise UnsafeSqlError(f"contains an unterminated {label}") from exc
+
+
+def locking_clause_is_the_problem(sql: str) -> bool:
+    """Say whether the text is read-only once its locking clauses go. This chooses a Fix.
+
+    `ReadOnlySql.parse` alone decides safety.
+    """
+    without_locks = LOCKING_CLAUSE.sub("", sql)
+    if without_locks == sql:
+        return False
+    try:
+        ReadOnlySql.parse(without_locks)
+    except UnsafeSqlError:
+        return False
+    return True
+
+
+def first_unsafe_line(sql: str) -> int | None:
+    """Point a message at the first `;`-separated part that fails alone.
+
+    This only helps a person find the problem. `ReadOnlySql.parse` alone decides safety.
+    """
+    line = 1
+    for part in sql.split(";"):
+        try:
+            ReadOnlySql.parse(part)
+        except UnsafeSqlError:
+            offset = next(
+                (
+                    index
+                    for index, text in enumerate(part.splitlines())
+                    if text.strip() and not text.lstrip().startswith("--")
+                ),
+                0,
+            )
+            return line + offset
+        line += part.count("\n")
+    return None
 
 
 @dataclass(frozen=True)

@@ -1,4 +1,4 @@
-"""Keep the instruction surface small, and keep AGENTS.md tied to real checks."""
+"""Keep the instruction surface small, and keep its links true."""
 
 from __future__ import annotations
 
@@ -9,44 +9,12 @@ from pathlib import Path
 import pytest
 from markdown_it import MarkdownIt
 
+from agentic_research_loop.source_bundles import available_bundles, load_bundle
+
 ROOT = Path(__file__).resolve().parents[1]
-INSTRUCTION_LIMIT = 500
-
-
-def _instruction_files() -> list[Path]:
-    return [
-        ROOT / "AGENTS.md",
-        ROOT / "program.md",
-        ROOT / "README.md",
-        ROOT / ".agents" / "docs" / "architecture.md",
-        ROOT / ".agents" / "docs" / "setup.md",
-        *sorted((ROOT / ".agents" / "skills").glob("*/SKILL.md")),
-    ]
-
-
-def test_instruction_surface_stays_under_the_limit() -> None:
-    counts = {
-        str(path.relative_to(ROOT)): len(path.read_text(encoding="utf-8").splitlines())
-        for path in _instruction_files()
-    }
-
-    assert sum(counts.values()) < INSTRUCTION_LIMIT, counts
-
-
-def test_every_enforced_rule_names_a_check_that_exists() -> None:
-    """A table row pointing at a deleted check would claim enforcement that is gone."""
-    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    section = agents.split("## Enforced rules", 1)[1].split("\n## ", 1)[0]
-    rows = re.findall(r"^\| (?!Rule|---)(.+?) \| (.+?) \| (.+?) \|$", section, re.M)
-    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
-
-    assert len(rows) >= 8
-    for rule, enforced_by, _added in rows:
-        for reference in re.findall(r"`([^`]+)`", enforced_by):
-            if reference.startswith("make "):
-                assert f"\n{reference.removeprefix('make ')}:" in makefile, rule
-            else:
-                assert (ROOT / reference).exists(), f"{rule}: {reference}"
+# About 10% above the 994 lines counted on 2026-11-04. Lower it when text goes away.
+INSTRUCTION_LIMIT = 1095
+EXAMPLE_CASES = ("examples/",)
 
 
 def _markdown_files() -> list[Path]:
@@ -58,6 +26,17 @@ def _markdown_files() -> list[Path]:
         text=True,
     ).stdout.splitlines()
     return [ROOT / name for name in listed if (ROOT / name).is_file()]
+
+
+def test_all_instruction_text_stays_under_the_limit() -> None:
+    """Count every doc, skill, and reference. A bundle is read only for its own source."""
+    counts = {
+        str(path.relative_to(ROOT)): len(path.read_text(encoding="utf-8").splitlines())
+        for path in _markdown_files()
+        if not str(path.relative_to(ROOT)).startswith(EXAMPLE_CASES)
+    }
+
+    assert sum(counts.values()) < INSTRUCTION_LIMIT, counts
 
 
 def _relative_links(text: str) -> list[str]:
@@ -94,3 +73,48 @@ def test_skills_keep_their_hard_limits(skill: str, limit: str) -> None:
     )
 
     assert limit in text
+
+
+def test_no_tracked_file_names_the_private_company() -> None:
+    """This repo is public, so a private name in any file is a leak."""
+    name = "menti" + "meter"
+    listed = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    leaks = [
+        file
+        for file in listed
+        if (ROOT / file).is_file()
+        and name in (ROOT / file).read_text("utf-8", errors="ignore").lower()
+    ]
+
+    assert leaks == []
+
+
+def test_no_bundle_names_a_removed_file() -> None:
+    for bundle in available_bundles(ROOT):
+        text = load_bundle(ROOT, bundle).path.read_text(encoding="utf-8")
+        for stale in (
+            "SETUP.md",
+            "source.json",
+            "mcp.snippet.json",
+            "](../",
+            "the snippet",
+        ):
+            assert stale not in text, f"{bundle}: {stale}"
+
+
+def test_mcp_json_is_not_tracked() -> None:
+    tracked = subprocess.run(
+        ["git", "ls-files", ".mcp.json"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+
+    assert tracked == ""

@@ -37,7 +37,7 @@ def test_case_lifecycle(repo_root: Path, monkeypatch, capsys) -> None:
     assert main(["validate", case.name, "--strict"]) == 1
     empty_failures = capsys.readouterr().out
     assert "Executive Summary" in empty_failures
-    assert "Missing review.json" in empty_failures
+    assert "independent review is missing" in empty_failures
 
     fill_case(case)
     assert main(["validate", case.name, "--strict"]) == 0
@@ -64,9 +64,9 @@ def test_lorem_ipsum_with_reviewer_claude_fails_strict(
     assert main(["validate", case.name, "--strict"]) == 1
 
     output = capsys.readouterr().out
-    assert "evidence.json needs at least one preserved source and claim" in output
-    assert "Missing review.json" in output
-    assert "source-objects.md entry needs" in output
+    assert "no preserved source and claim yet" in output
+    assert "independent review is missing" in output
+    assert "has no locator or access date" in output
 
 
 def test_reviewer_claude_fails_even_with_a_consistent_manifest(

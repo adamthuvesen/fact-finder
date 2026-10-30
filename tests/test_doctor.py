@@ -56,7 +56,10 @@ def test_removed_readonly_suffix_fails(repo, capsys) -> None:
 
     assert main(["doctor"]) == 1
 
-    assert ".mcp.json: url_suffix: url does not end with" in capsys.readouterr().out
+    assert (
+        "breaks its url_suffix control: url does not end with"
+        in capsys.readouterr().out
+    )
 
 
 def test_extra_flag_breaking_arg_absent_fails(repo) -> None:
@@ -86,7 +89,7 @@ def test_placeholders_need_setup_until_filled(
 
     assert "needs-setup" in _statuses(repo)[bundle]
     assert main(["doctor"]) == 1
-    assert f"replace {placeholder}" in capsys.readouterr().out
+    assert f"still has {placeholder}" in capsys.readouterr().out
 
     for path in (
         repo / ".mcp.json",
@@ -127,7 +130,7 @@ def test_unwired_codex_fails(repo) -> None:
 @pytest.mark.parametrize(
     ("path", "rule"),
     [
-        (".claude/settings.json", "mcp__stripe__create_refund"),
+        (".claude/settings.local.json", "mcp__stripe__create_refund"),
         (".cursor/cli.json", "Mcp(stripe:create_refund)"),
     ],
 )
@@ -232,8 +235,8 @@ def test_a_declared_control_bundle_pointed_elsewhere_fails(repo, capsys) -> None
 
     assert main(["doctor"]) == 1
     output = capsys.readouterr().out
-    assert ".mcp.json differs from the bundle: url" in output
-    assert ".cursor/mcp.json differs from the bundle: url" in output
+    assert "differs from its bundle: url" in output
+    assert "differs from its bundle: url" in output
 
 
 @pytest.mark.parametrize(

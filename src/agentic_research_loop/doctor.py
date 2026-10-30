@@ -9,16 +9,15 @@ the definition declares as user-filled is fine, and any other target or argument
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import yaml
 from pydantic import TypeAdapter, ValidationError
 
 from .client_configs import (
-    CLAUDE_SETTINGS,
+    CLAUDE_LOCAL_SETTINGS,
     CLIENT_FILES,
     CLIENTS,
     CODEX_CONFIG,
@@ -27,15 +26,27 @@ from .client_configs import (
     claude_deny_rules,
     cursor_deny_rules,
     deny_rules,
+    server_differences,
 )
+from .feedback import problem
 from .io import read_text
 from .layout import as_table
-from .source_bundles import Bundle, enabled_bundles
+from .source_bundles import (
+    WIRING_FILE,
+    Bundle,
+    conflict_problem,
+    enabled_bundles,
+    owned_wiring,
+    wiring_is_unwanted,
+)
 from .sources import (
     CONFIG_CHECKED,
+    Client,
     ReadOnlyControl,
     ServerDefinition,
     SourceConfigError,
+    Wiring,
+    load_sources_file,
 )
 
 READ_ONLY_STATEMENTS = frozenset({"Select", "Describe", "Show", "Use"})
@@ -68,12 +79,12 @@ def allowlist_problem(text: str) -> str | None:
         settings = as_table(yaml.safe_load(text))
     except yaml.YAMLError as exc:
         return f"is not valid YAML: {exc}"
-    problem = _permissions_problem(settings.get("sql_statement_permissions"))
-    if problem is None and as_table(settings.get("other_services")).get(
+    reason = _permissions_problem(settings.get("sql_statement_permissions"))
+    if reason is None and as_table(settings.get("other_services")).get(
         "semantic_manager"
     ):
         return "enables semantic_manager, whose write tool bypasses the allowlist"
-    return problem
+    return reason
 
 
 def control_problem(
@@ -103,143 +114,146 @@ def _statement_allowlist_problem(
     path = repo_root / relative
     if not path.exists():
         return f"{relative} is missing"
-    problem = allowlist_problem(read_text(path))
-    return f"{relative} {problem}" if problem else None
-
-
-def _value_pattern(value: str, server: ServerDefinition) -> str:
-    pattern = re.escape(value).replace(re.escape("@latest"), r"@[\w.-]+")
-    for placeholder in server.placeholders:
-        fill = r"/\S+" if placeholder.startswith("/") else r"[^/\s]+"
-        pattern = pattern.replace(re.escape(placeholder), fill)
-    return "|".join([pattern, *server.alternatives.get(value, [])])
-
-
-def _matches(value: object, default: str | None, server: ServerDefinition) -> bool:
-    if default is None:
-        return value is None
-    return isinstance(value, str) and bool(
-        re.fullmatch(_value_pattern(default, server), value)
-    )
-
-
-def _without_optional_args(args: list[str], server: ServerDefinition) -> list[str]:
-    kept: list[str] = []
-    skip_value = False
-    for arg in args:
-        if skip_value:
-            skip_value = False
-        elif arg in server.optional_args:
-            skip_value = True
-        elif not any(arg.startswith(f"{flag}=") for flag in server.optional_args):
-            kept.append(arg)
-    return kept
-
-
-def server_differences(entry: dict[str, Any], server: ServerDefinition) -> list[str]:
-    """Compare what a client would connect to with the bundle's definition.
-
-    Only the url, command, and args choose the server. Other keys, such as `env` and
-    `headers`, hold the credentials SETUP.md tells the user to add.
-    """
-    differences = [
-        f"{key} is {entry.get(key)!r}"
-        for key, default in (("url", server.url), ("command", server.command))
-        if not _matches(entry.get(key), default, server)
-    ]
-    args = _without_optional_args([str(arg) for arg in entry.get("args", [])], server)
-    if len(args) != len(server.args) or not all(
-        _matches(arg, default, server)
-        for arg, default in zip(args, server.args, strict=True)
-    ):
-        differences.append(f"args are {args!r}")
-    return differences
+    reason = allowlist_problem(read_text(path))
+    return f"{relative} {reason}" if reason else None
 
 
 def _client_checks(
-    repo_root: Path, clients: ClientConfigs, bundle: Bundle, server: ServerDefinition
+    repo_root: Path,
+    clients: ClientConfigs,
+    bundle: Bundle,
+    server: ServerDefinition,
+    owned: list[Client],
 ) -> list[DoctorCheck]:
     control = bundle.spec.read_only_control
-    setup = bundle.path / "SETUP.md"
+    show = f"run `research source show {bundle.name}`"
+    restore = "run `research setup`"
     checks: list[DoctorCheck] = []
+    conflicts = clients.conflicts(server, owned)
     for client in CLIENTS:
         label = CLIENT_FILES[client]
         entry = clients.server_entry(client, server.server_name)
         if entry is None:
-            checks.append(DoctorCheck(bundle.name, "fail", f"not wired in {label}"))
+            checks.append(
+                DoctorCheck(
+                    bundle.name,
+                    "fail",
+                    problem(
+                        f"{bundle.name} is not wired",
+                        "run `research setup`",
+                        file=label,
+                    ),
+                )
+            )
+            continue
+        if client in conflicts:
+            checks.append(
+                DoctorCheck(
+                    bundle.name,
+                    "fail",
+                    conflict_problem(server.server_name, bundle.name, label),
+                )
+            )
             continue
         checks.extend(
             DoctorCheck(
                 bundle.name,
                 "needs-setup",
-                f"replace {placeholder} in {label}; see {setup}",
+                problem(
+                    f"{bundle.name} still has {placeholder}",
+                    f"replace it with your value; {show}",
+                    file=label,
+                ),
             )
             for placeholder in server.placeholders
             if placeholder in json.dumps(entry)
         )
         checks.extend(
             DoctorCheck(
-                bundle.name, "fail", f"{label} differs from the bundle: {difference}"
+                bundle.name,
+                "fail",
+                problem(
+                    f"{bundle.name} differs from its bundle: {difference}",
+                    restore,
+                    file=label,
+                ),
             )
             for difference in server_differences(entry, server)
         )
         if control.mechanism in CONFIG_CHECKED:
-            problem = control_problem(
+            reason = control_problem(
                 repo_root,
                 control,
                 url=str(entry.get("url", "")),
                 args=[str(arg) for arg in entry.get("args", [])],
             )
-            if problem:
+            if reason:
                 checks.append(
                     DoctorCheck(
-                        bundle.name, "fail", f"{label}: {control.mechanism}: {problem}"
+                        bundle.name,
+                        "fail",
+                        problem(
+                            f"{bundle.name} breaks its {control.mechanism} control: {reason}",
+                            restore,
+                            file=label,
+                        ),
                     )
                 )
     return checks
 
 
 def _deny_checks(
-    clients: ClientConfigs, bundle: Bundle, server: ServerDefinition
+    clients: ClientConfigs,
+    bundle: Bundle,
+    server: ServerDefinition,
+    conflicts: list[Client],
 ) -> list[DoctorCheck]:
     missing: list[tuple[str, str]] = []
-    claude = deny_rules(clients.claude_settings)
+    claude = [*deny_rules(clients.claude_local_settings), *clients.claude_shared_deny]
     cursor = deny_rules(clients.cursor_permissions)
-    missing += [
-        (CLAUDE_SETTINGS, r) for r in claude_deny_rules(server) if r not in claude
-    ]
-    missing += [
-        (CURSOR_PERMISSIONS, r) for r in cursor_deny_rules(server) if r not in cursor
-    ]
+    if "claude" not in conflicts:
+        missing += [
+            (CLAUDE_LOCAL_SETTINGS, r)
+            for r in claude_deny_rules(server)
+            if r not in claude
+        ]
+    if "cursor" not in conflicts:
+        missing += [
+            (CURSOR_PERMISSIONS, r)
+            for r in cursor_deny_rules(server)
+            if r not in cursor
+        ]
     entry = clients.server_entry("codex", server.server_name)
-    if entry is not None:
+    if entry is not None and "codex" not in conflicts:
         disabled: list[str] = entry.get("disabled_tools", [])
         missing += [(CODEX_CONFIG, t) for t in server.write_tools if t not in disabled]
     return [
         DoctorCheck(
             bundle.name,
             "fail",
-            f"{label} does not deny {rule}. Run `research setup` to restore it.",
+            problem(f"does not deny {rule}", "run `research setup`", file=label),
         )
         for label, rule in missing
     ]
 
 
 def _check_bundle(
-    repo_root: Path, clients: ClientConfigs, bundle: Bundle
+    repo_root: Path, clients: ClientConfigs, bundle: Bundle, owned: list[Client]
 ) -> list[DoctorCheck]:
     control = bundle.spec.read_only_control
     checks: list[DoctorCheck] = []
     if bundle.server is not None:
-        checks += _client_checks(repo_root, clients, bundle, bundle.server)
-        checks += _deny_checks(clients, bundle, bundle.server)
+        checks += _client_checks(repo_root, clients, bundle, bundle.server, owned)
+        checks += _deny_checks(
+            clients, bundle, bundle.server, clients.conflicts(bundle.server, owned)
+        )
     if control.mechanism not in CONFIG_CHECKED:
         checks.append(
             DoctorCheck(
                 bundle.name,
                 "declared",
                 f"{control.mechanism}: {control.detail}. Config cannot prove this; "
-                f"follow {bundle.path / 'SETUP.md'}.",
+                f"run `research source show {bundle.name}`.",
             )
         )
     elif not checks:
@@ -259,25 +273,74 @@ def _goals_checks(repo_root: Path, clients: ClientConfigs) -> list[DoctorCheck]:
         DoctorCheck(
             CODEX_CONFIG,
             "fail",
-            f"native goals are {state}. Set `goals = true` under `[features]`.",
+            problem(
+                f"native goals are {state}",
+                "set `goals = true` under `[features]`",
+                file=CODEX_CONFIG,
+            ),
         )
     ]
+
+
+def _leftover_checks(
+    repo_root: Path, clients: ClientConfigs, ledger: dict[str, Wiring]
+) -> list[DoctorCheck]:
+    """Report what research added for a source that no longer wants it."""
+    document = load_sources_file(repo_root)
+    checks: list[DoctorCheck] = []
+    for name, wiring in ledger.items():
+        if not wiring_is_unwanted(repo_root, document, name, wiring):
+            continue
+        files = [
+            CLIENT_FILES[client]
+            for client in wiring.clients
+            if clients.server_entry(client, wiring.server_name)
+        ]
+        checks.extend(
+            DoctorCheck(
+                name,
+                "fail",
+                problem(
+                    f"server '{wiring.server_name}' is left over from source {name}, "
+                    "which no longer wants it",
+                    "run `research setup`",
+                    file=file,
+                ),
+            )
+            for file in files or [WIRING_FILE]
+        )
+    return checks
 
 
 def run_doctor(repo_root: Path) -> list[DoctorCheck]:
     bundles, without_bundle = enabled_bundles(repo_root)
     try:
         clients = ClientConfigs.read(repo_root)
+        ledger = owned_wiring(repo_root, load_sources_file(repo_root), clients)
     except SourceConfigError as exc:
         return [DoctorCheck("client config", "fail", str(exc))]
     checks = _goals_checks(repo_root, clients)
     checks.extend(
         check
         for bundle in bundles
-        for check in _check_bundle(repo_root, clients, bundle)
+        for check in _check_bundle(
+            repo_root,
+            clients,
+            bundle,
+            ledger[bundle.name].clients if bundle.name in ledger else [],
+        )
     )
+    checks.extend(_leftover_checks(repo_root, clients, ledger))
     checks.extend(
-        DoctorCheck(name, "declared", "no bundle, so nothing can be checked")
+        DoctorCheck(
+            name,
+            "declared",
+            problem(
+                f"{name} has no bundle, so nothing can be checked",
+                f"run `research source new {name}`",
+                file="config/sources.json",
+            ),
+        )
         for name in without_bundle
     )
     return checks

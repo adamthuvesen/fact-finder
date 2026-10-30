@@ -6,6 +6,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from .feedback import problem
 from .io import read_text
 
 PROJECT_NAME = "agentic-research-loop"
@@ -20,7 +21,11 @@ def _project_settings(pyproject_path: Path) -> dict[str, Any] | None:
     try:
         payload = tomllib.loads(read_text(pyproject_path))
     except tomllib.TOMLDecodeError as exc:
-        raise ValueError(f"{pyproject_path} is not valid TOML: {exc}") from exc
+        raise ValueError(
+            problem(
+                f"not valid TOML: {exc}", "correct the syntax", file=str(pyproject_path)
+            )
+        ) from exc
     tool = as_table(payload.get("tool"))
     if PROJECT_NAME in tool:
         return as_table(tool[PROJECT_NAME])
@@ -35,16 +40,50 @@ def find_repo_root(start: Path | None = None) -> Path:
         if pyproject_path.exists() and _project_settings(pyproject_path) is not None:
             return candidate
     raise FileNotFoundError(
-        f"Could not find a project root from {current}. Run from the {PROJECT_NAME} "
-        f"repo, or add a [tool.{PROJECT_NAME}] table to your pyproject.toml."
+        problem(
+            f"no project root above {current}",
+            f"run from a repo whose pyproject.toml has a [tool.{PROJECT_NAME}] table",
+        )
     )
+
+
+def _setting(repo_root: Path, name: str) -> object:
+    pyproject_path = repo_root / "pyproject.toml"
+    if not pyproject_path.exists():
+        return None
+    return (_project_settings(pyproject_path) or {}).get(name)
 
 
 def project_setting(repo_root: Path, name: str) -> str | None:
     """Read one string value from `[tool.agentic-research-loop]`."""
-    settings = _project_settings(repo_root / "pyproject.toml") or {}
-    value = settings.get(name)
-    return value if isinstance(value, str) else None
+    value = _setting(repo_root, name)
+    if value is None or isinstance(value, str):
+        return value
+    raise ValueError(
+        problem(
+            f"[tool.{PROJECT_NAME}] {name} is not a string",
+            f'write {name} = "<value>"',
+            file="pyproject.toml",
+        )
+    )
+
+
+def project_list_setting(repo_root: Path, name: str) -> list[str]:
+    """Read one list of strings from `[tool.agentic-research-loop]`."""
+    value = _setting(repo_root, name)
+    if value is None:
+        return []
+    if not isinstance(value, list) or not all(
+        isinstance(item, str) and item.strip() for item in cast("list[object]", value)
+    ):
+        raise ValueError(
+            problem(
+                f"[tool.{PROJECT_NAME}] {name} is not a list of non-empty strings",
+                f'write {name} = ["Owner"]',
+                file="pyproject.toml",
+            )
+        )
+    return cast("list[str]", value)
 
 
 def local_today() -> date:
@@ -168,7 +207,12 @@ def slugify(value: str, *, max_length: int = MAX_SLUG_LENGTH) -> str:
     unique = list(dict.fromkeys(content))
     slug = "-".join(unique)
     if not slug:
-        raise ValueError("Slug must contain at least one letter or number.")
+        raise ValueError(
+            problem(
+                "the case slug has no letter or number",
+                "use a slug such as `research init export-drop`",
+            )
+        )
     if len(slug) > max_length:
         slug = slug[:max_length].rsplit("-", 1)[0]
     if not slug:

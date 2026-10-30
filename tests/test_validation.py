@@ -47,11 +47,11 @@ def test_missing_report_blocks_and_missing_notes_warn(tmp_path: Path) -> None:
     case = build_case(tmp_path)
     (case / "notes.md").unlink()
     assert validate_case(case, strict_completion=True) == []
-    assert "Missing file: notes.md" in warnings_of(case)
+    assert any("notes.md: the file is missing" in item for item in warnings_of(case))
 
     (case / "report.md").unlink()
 
-    assert "Missing file: report.md" in validate_case(case)
+    assert any("report.md: the file is missing" in e for e in validate_case(case))
 
 
 def test_notes_carry_no_gate(tmp_path: Path) -> None:
@@ -99,7 +99,10 @@ def test_missing_sql_reason_warns(tmp_path: Path) -> None:
 def test_placeholder_question_warns(tmp_path: Path) -> None:
     case = build_case(tmp_path, brief=BRIEF.replace(QUESTION, "Research: exports"))
 
-    assert any("specific research question" in warning for warning in warnings_of(case))
+    assert any(
+        "question is still the scaffold text" in warning
+        for warning in warnings_of(case)
+    )
 
 
 def test_strict_rejects_an_unwritten_report_section(tmp_path: Path) -> None:
@@ -304,9 +307,7 @@ def test_unlisted_evidence_locator_warns(tmp_path: Path) -> None:
     )
     write_review(case)
 
-    assert any(
-        "is not listed in source-objects.md" in warning for warning in warnings_of(case)
-    )
+    assert any("is not listed" in warning for warning in warnings_of(case))
 
 
 # --- SQL-backed families need a preserved query --------------------------------
@@ -336,7 +337,7 @@ def test_sql_backed_family_used_needs_a_preserved_query(
 
     errors = validate_case(case, strict_completion=True)
 
-    assert any("needs a preserved read-only query" in error for error in errors)
+    assert any("no preserved query" in error for error in errors)
 
 
 def test_sql_backed_family_passes_with_a_query(tmp_path: Path) -> None:
@@ -466,14 +467,15 @@ def test_decision_case_without_a_review_blocks_until_accepted(tmp_path: Path) ->
     case = build_case(tmp_path)
     (case / "review.json").unlink()
     assert any(
-        "Missing review.json" in e for e in validate_case(case, strict_completion=True)
+        "independent review is missing" in e
+        for e in validate_case(case, strict_completion=True)
     )
 
     accepted = accept_findings(case, "VP needs it today")
 
     result = assess_case(case, strict_completion=True)
     assert result.errors == []
-    assert any("Missing review.json" in item for item in accepted)
+    assert any("independent review is missing" in item for item in accepted)
     assert "because VP needs it today" in result.label
     record = json.loads((case / "overrides.json").read_text(encoding="utf-8"))
     assert record["overrides"][0]["reason"] == "VP needs it today"

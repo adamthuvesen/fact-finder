@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .evidence import evidence_template
+from .feedback import problem
 from .from_spec import load_from_spec_dir, replace_markdown_section
 from .io import extract_section, read_text, write_text
 from .layout import (
@@ -31,7 +32,9 @@ from .templates import (
     plan_template,
     queries_template,
     report_template,
+    required_brief_fields,
     source_objects_template,
+    with_required_sections,
 )
 
 DEFAULT_SUCCESS_CRITERIA = (
@@ -56,6 +59,7 @@ def _brief_text(
     constraints: list[str],
     families: list[str],
     rigour: str,
+    required_fields: tuple[str, ...],
 ) -> str:
     if supplied_brief is None:
         return brief_template(
@@ -65,6 +69,7 @@ def _brief_text(
             allowed_families=families,
             success_criteria=list(DEFAULT_SUCCESS_CRITERIA),
             rigour=rigour,
+            required_fields=required_fields,
         )
     brief = supplied_brief
     if RESEARCH_SHAPE.search(brief) is None:
@@ -86,9 +91,10 @@ def _brief_text(
         "\n".join(f"- {line}" for line in constraints if line.strip())
         + "\n\nAll external systems are read-only.",
     )
-    return replace_markdown_section(
+    brief = replace_markdown_section(
         brief, "Allowed Source Families", ", ".join(families) or NO_SOURCE_FAMILIES
     )
+    return with_required_sections(brief, required_fields)
 
 
 def create_manual(
@@ -111,9 +117,20 @@ def create_manual(
     path = case_dir(repo_root, case_id)
     parent = research_dir(repo_root)
     if parent.resolve() != repo_root.resolve() / parent.name:
-        raise ValueError("Research directory must not resolve outside the repository")
+        raise ValueError(
+            problem(
+                "research/ resolves outside the repository",
+                "make research/ a plain directory inside the repo",
+            )
+        )
     if path.exists():
-        raise FileExistsError(f"Case already exists: {path}")
+        raise FileExistsError(
+            problem(
+                "this case already exists",
+                f"run `research next {case_id}`, or choose another slug",
+                file=str(path),
+            )
+        )
 
     registry = load_registry(repo_root)
     names = list(registry) if sources is None else sources
@@ -129,6 +146,7 @@ def create_manual(
         constraints=constraints,
         families=families,
         rigour=rigour,
+        required_fields=required_brief_fields(repo_root),
     )
     case_question = extract_section(brief, "Question") or question or slug
 
@@ -178,7 +196,10 @@ def _resolve_existing_case_path(candidate: Path, expected_parent: Path) -> Path 
     resolved = candidate.resolve()
     if not resolved.is_dir() or resolved.parent != expected_parent:
         raise FileNotFoundError(
-            f"Case path {resolved} is outside the research directory {expected_parent}"
+            problem(
+                f"{resolved} is outside the research directory {expected_parent}",
+                "pass a case from `research list`",
+            )
         )
     return resolved
 
@@ -189,7 +210,9 @@ def _suffix_case_match(repo_root: Path, value: str) -> Path | None:
     ]
     if len(matches) > 1:
         names = ", ".join(path.name for path in matches)
-        raise FileNotFoundError(f"Ambiguous case slug '{value}' — matches: {names}")
+        raise FileNotFoundError(
+            problem(f"case slug '{value}' matches {names}", "pass the full case id")
+        )
     return matches[0] if matches else None
 
 
@@ -200,7 +223,9 @@ def resolve_case_path(repo_root: Path, value: str) -> Path:
     FileNotFoundError if the case is missing or resolves outside research_dir.
     """
     if not value:
-        raise FileNotFoundError("Case identifier must not be empty")
+        raise FileNotFoundError(
+            problem("the case id is empty", "pass a case from `research list`")
+        )
     expected_parent = research_dir(repo_root).resolve()
     resolved = _resolve_existing_case_path(
         Path(value), expected_parent
@@ -210,7 +235,9 @@ def resolve_case_path(repo_root: Path, value: str) -> Path:
     resolved = _suffix_case_match(repo_root, value)
     if resolved is not None:
         return resolved
-    raise FileNotFoundError(f"Could not find case: {value}")
+    raise FileNotFoundError(
+        problem(f"no case {value}", "pass a case from `research list`")
+    )
 
 
 def render_goal(case_path: Path) -> str:

@@ -15,7 +15,6 @@ from agentic_research_loop.sources import (
     SourceConfigError,
     SourceSpec,
     load_registry,
-    parse_sources_file,
     source_constraints,
 )
 
@@ -70,13 +69,15 @@ def test_user_file_rejects_a_bad_spec(tmp_path, bad_spec, match) -> None:
 def test_user_file_rejects_a_builtin_collision(tmp_path) -> None:
     _write_user_sources(tmp_path, {"web-search": VALID_SPEC})
 
-    with pytest.raises(SourceConfigError, match="redefines built-in"):
+    with pytest.raises(SourceConfigError, match="redefines the built-in"):
         load_registry(tmp_path)
 
 
-def test_source_name_must_make_a_usable_identifier() -> None:
+def test_source_name_must_make_a_usable_identifier(tmp_path: Path) -> None:
+    _write_user_sources(tmp_path, {"Bad Name": VALID_SPEC})
+
     with pytest.raises(SourceConfigError, match="source name"):
-        parse_sources_file(json.dumps({"sources": {"Bad Name": VALID_SPEC}}), "test")
+        load_registry(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -87,7 +88,7 @@ def test_source_name_must_make_a_usable_identifier() -> None:
     ],
 )
 def test_server_defines_exactly_one_transport(fields) -> None:
-    with pytest.raises(ValidationError, match="exactly one"):
+    with pytest.raises(ValidationError, match="both or neither"):
         ServerDefinition(server_name="foo", **fields)
 
 
@@ -130,14 +131,6 @@ def test_local_only_leaves_no_external_source_in_the_brief(
         assert spec.plan_line not in brief
 
 
-def test_example_sources_file_is_valid() -> None:
-    """The committed example must parse and validate."""
-    example = Path(__file__).resolve().parents[1] / "config" / "sources.json.example"
-    assert "zendesk" in parse_sources_file(
-        example.read_text(encoding="utf-8"), "example"
-    )
-
-
 @pytest.mark.parametrize(
     "command",
     [
@@ -160,7 +153,8 @@ def test_bad_sources_json_is_a_clean_cli_error(
     assert main(command) == 1
 
     captured = capsys.readouterr()
-    assert captured.err.startswith("Error: config/sources.json is invalid")
+    assert captured.err.startswith("config/sources.json")
+    assert "Fix:" in captured.err
     assert captured.out == ""
 
 

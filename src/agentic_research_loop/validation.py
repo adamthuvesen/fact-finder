@@ -34,6 +34,7 @@ from .evidence import (
     load_evidence,
     without_accepted_gaps,
 )
+from .feedback import line_of, problem, validation_problems
 from .io import extract_section, read_text, write_documents
 from .layout import (
     brief_path,
@@ -45,7 +46,12 @@ from .layout import (
     report_path,
     source_objects_path,
 )
-from .readonly_sql import ReadOnlySql, UnsafeSqlError
+from .readonly_sql import (
+    ReadOnlySql,
+    UnsafeSqlError,
+    first_unsafe_line,
+    locking_clause_is_the_problem,
+)
 from .source_bundles import sql_backed_families
 from .strict_model import StrictModel
 from .templates import (
@@ -54,6 +60,7 @@ from .templates import (
     PLACEHOLDER,
     RESEARCH_SHAPE,
     RIGOUR,
+    required_brief_fields,
 )
 
 GATE_LIMITS = (
@@ -69,6 +76,7 @@ BLOCKS_AT_COMPLETION: dict[Rigour, frozenset[str]] = {
     "decision": frozenset({"answer", "wrong", "contract"}),
 }
 OVERRIDES_FILE = "overrides.json"
+SOURCE_OBJECTS = "source-objects.md"
 
 REQUIRED_FILES = {"brief.md": brief_path, "report.md": report_path}
 EXPECTED_FILES = {
@@ -139,14 +147,38 @@ def _report_findings(text: str, rigour: Rigour) -> list[Finding]:
     findings: list[Finding] = []
     if not report_has_substance(report):
         findings.append(
-            Finding("answer", "report.md needs a meaningful Executive Summary")
+            Finding(
+                "answer",
+                problem(
+                    "the Executive Summary is empty or too short",
+                    "state the answer in at least "
+                    f"{MIN_SUBSTANTIVE_CONTENT_LENGTH} characters under "
+                    "`## Executive Summary`",
+                    file="report.md",
+                ),
+            )
         )
     if rigour == "exploratory" and EXPLORATORY_LABEL not in report:
         findings.append(
-            Finding("answer", f"report.md needs its label line: `{EXPLORATORY_LABEL}`")
+            Finding(
+                "answer",
+                problem(
+                    "the exploratory label line is missing",
+                    f"add the line `{EXPLORATORY_LABEL}`",
+                    file="report.md",
+                ),
+            )
         )
     findings.extend(
-        Finding("contract", f"report.md needs a completed {heading} section")
+        Finding(
+            "contract",
+            problem(
+                f"section {heading} is missing or unfilled",
+                f"write `## {heading}`, or state why it does not apply",
+                file="report.md",
+                line=line_of(report, f"## {heading}"),
+            ),
+        )
         for heading in REPORT_SECTIONS
         if rigour == "decision" and _section_is_placeholder(report, heading)
     )
@@ -158,7 +190,14 @@ def _report_findings(text: str, rigour: Rigour) -> list[Finding]:
     ]
     if unfilled:
         findings.append(
-            Finding("format", f"report.md has unfilled sections: {', '.join(unfilled)}")
+            Finding(
+                "format",
+                problem(
+                    f"unfilled sections: {', '.join(unfilled)}",
+                    "fill them, or delete them from this quick answer",
+                    file="report.md",
+                ),
+            )
         )
     return findings
 
@@ -173,8 +212,12 @@ def parse_source_objects(text: str) -> tuple[list[SourceObject], list[str]]:
         accessed = ACCESS_DATE.search(entry)
         if locator is None or accessed is None:
             errors.append(
-                f"source-objects.md entry needs a backticked name or URL and "
-                f"`accessed YYYY-MM-DD`: {entry[:80]}"
+                problem(
+                    f"entry {entry[:80]!r} has no locator or access date",
+                    "write it as - `name or URL` (accessed YYYY-MM-DD)",
+                    file=SOURCE_OBJECTS,
+                    line=line_of(text, entry[:40]),
+                )
             )
             continue
         try:
@@ -185,7 +228,14 @@ def parse_source_objects(text: str) -> tuple[list[SourceObject], list[str]]:
                 )
             )
         except ValueError:
-            errors.append(f"source-objects.md has an invalid access date: {entry[:80]}")
+            errors.append(
+                problem(
+                    f"entry {entry[:80]!r} has an invalid access date",
+                    "use a real date as YYYY-MM-DD",
+                    file=SOURCE_OBJECTS,
+                    line=line_of(text, entry[:40]),
+                )
+            )
     return objects, errors
 
 
@@ -193,11 +243,29 @@ def _source_object_findings(case_path: Path, text: str | None) -> list[Finding]:
     if text is None:
         return []
     if PLACEHOLDER in text:
-        return [Finding("format", "source-objects.md still has its placeholder")]
+        return [
+            Finding(
+                "format",
+                problem(
+                    "still has its placeholder",
+                    "list each object you read as - `name or URL` (accessed YYYY-MM-DD)",
+                    file=SOURCE_OBJECTS,
+                ),
+            )
+        ]
     objects, errors = parse_source_objects(text)
     findings = [Finding("format", error) for error in errors]
     if not objects and not errors:
-        findings.append(Finding("format", "source-objects.md lists no source object"))
+        findings.append(
+            Finding(
+                "format",
+                problem(
+                    "lists no source object",
+                    "add each object you read as - `name or URL` (accessed YYYY-MM-DD)",
+                    file=SOURCE_OBJECTS,
+                ),
+            )
+        )
     if not evidence_path(case_path).exists():
         return findings
     try:
@@ -207,7 +275,11 @@ def _source_object_findings(case_path: Path, text: str | None) -> list[Finding]:
     findings.extend(
         Finding(
             "format",
-            f"{source.id}: locator {source.locator} is not listed in source-objects.md",
+            problem(
+                f"source {source.id}: locator {source.locator} is not listed",
+                f"add - `{source.locator}` (accessed YYYY-MM-DD)",
+                file=SOURCE_OBJECTS,
+            ),
         )
         for source in evidence.sources
         if source.locator not in text
@@ -225,14 +297,22 @@ def _coverage_findings(case_path: Path, brief: str) -> list[Finding]:
         return []
     allowed = {name.strip() for name in section.split(",") if name.strip()}
     allowed.discard(NO_SOURCE_FAMILIES)
-    if allowed != {item.family for item in evidence.coverage}:
-        return [
-            Finding(
-                "format",
-                "evidence.json coverage does not match the brief's Allowed Source Families",
-            )
-        ]
-    return []
+    covered = {item.family for item in evidence.coverage}
+    return [
+        Finding(
+            "format",
+            problem(
+                f"coverage {mismatch} {family}, but Allowed Source Families in brief.md "
+                f"{'does not' if family in covered else 'does'}",
+                f"make the coverage entry for {family} and the brief agree",
+                file="evidence.json",
+            ),
+        )
+        for family, mismatch in (
+            *((family, "lists") for family in sorted(covered - allowed)),
+            *((family, "omits") for family in sorted(allowed - covered)),
+        )
+    ]
 
 
 def _used_sql_families(case_path: Path) -> list[str]:
@@ -261,8 +341,11 @@ def _sql_provenance_findings(
         return [
             Finding(
                 "contract",
-                f"queries.sql needs a preserved read-only query: this case used "
-                f"{', '.join(used)}, so `-- No SQL used` does not apply",
+                problem(
+                    f"no preserved query, but the case used {', '.join(used)}",
+                    "preserve the read-only query you ran, or change the coverage status",
+                    file="queries.sql",
+                ),
             )
         ]
     if queries.no_sql_reason:
@@ -270,7 +353,11 @@ def _sql_provenance_findings(
     return [
         Finding(
             "format",
-            "queries.sql has no query and no `-- No SQL used: <reason>` line",
+            problem(
+                "has no query and no reason for that",
+                "preserve the query, or add `-- No SQL used: <reason>`",
+                file="queries.sql",
+            ),
         )
     ]
 
@@ -291,7 +378,14 @@ def parse_plan_threads(plan_text: str) -> list[tuple[str, dict[str, str]]]:
 def _root_cause_findings(case_path: Path, brief_text: str) -> list[Finding]:
     """Check the design sections that make a root-cause case falsifiable."""
     findings = [
-        Finding("format", f"root-cause brief should capture `## {heading}`")
+        Finding(
+            "format",
+            problem(
+                f"this root-cause brief has no `## {heading}` section",
+                f"add `## {heading}`",
+                file="brief.md",
+            ),
+        )
         for heading in _ROOT_CAUSE_BRIEF_SECTIONS
         if f"## {heading}" not in brief_text
     ]
@@ -301,17 +395,38 @@ def _root_cause_findings(case_path: Path, brief_text: str) -> list[Finding]:
     try:
         plan_text = read_text(plan_file)
     except (OSError, UnicodeError) as exc:
-        return [*findings, Finding("format", f"Could not read plan.md: {exc}")]
+        return [
+            *findings,
+            Finding(
+                "format",
+                problem(f"could not read: {exc}", "save it as UTF-8", file="plan.md"),
+            ),
+        ]
     if "No plan yet" in plan_text:
         return findings
     threads = parse_plan_threads(plan_text)
     if not threads:
         return [
             *findings,
-            Finding("format", "plan.md has content but no numbered research threads"),
+            Finding(
+                "format",
+                problem(
+                    "has content but no numbered research threads",
+                    "add headings such as `### T1: <thread>`",
+                    file="plan.md",
+                ),
+            ),
         ]
     findings.extend(
-        Finding("format", f"{heading} is high priority but missing `{field_name}`")
+        Finding(
+            "format",
+            problem(
+                f"{heading} is high priority but has no {field_name}",
+                f"add `**{field_name}:** <value>` to the thread",
+                file="plan.md",
+                line=line_of(plan_text, heading),
+            ),
+        )
         for heading, fields in threads
         if fields.get("Priority", "").lower() == "high"
         for field_name in ROOT_CAUSE_DESIGN_FIELDS
@@ -326,7 +441,11 @@ def _shape_findings(case_path: Path, brief: str) -> list[Finding]:
         return [
             Finding(
                 "format",
-                "brief.md has no `- Research shape: <template>` line in `## Scope`",
+                problem(
+                    "`## Scope` has no research shape",
+                    "add `- Research shape: exploration`, `root-cause`, or `comparison`",
+                    file="brief.md",
+                ),
             )
         ]
     shape = match.group(1).lower()
@@ -334,11 +453,32 @@ def _shape_findings(case_path: Path, brief: str) -> list[Finding]:
         return [
             Finding(
                 "format",
-                f"brief.md has an unknown research shape {shape!r}. "
-                f"Use one of: {', '.join(sorted(VALID_TEMPLATES))}",
+                problem(
+                    f"unknown research shape {shape!r}",
+                    f"use one of: {', '.join(sorted(VALID_TEMPLATES))}",
+                    file="brief.md",
+                    line=line_of(brief, shape),
+                ),
             )
         ]
     return _root_cause_findings(case_path, brief) if shape == "root-cause" else []
+
+
+def _brief_field_findings(case_path: Path, brief: str) -> list[Finding]:
+    """Check each required brief section. A consumer adds to the list in its pyproject."""
+    return [
+        Finding(
+            "answer",
+            problem(
+                f"required section ## {name} is missing or unfilled",
+                f"write its content under `## {name}`",
+                file="brief.md",
+                line=line_of(brief, f"## {name}"),
+            ),
+        )
+        for name in required_brief_fields(case_path.parent.parent)
+        if _section_is_placeholder(brief, name)
+    ]
 
 
 def case_rigour(brief: str) -> Rigour:
@@ -360,7 +500,14 @@ def _read_case_files(
         path = path_for(case_path)
         if not path.exists():
             findings.append(
-                Finding("structure" if required else "format", f"Missing file: {name}")
+                Finding(
+                    "structure" if required else "format",
+                    problem(
+                        "the file is missing",
+                        f"restore it, or create the case with `research init` to get {name}",
+                        file=name,
+                    ),
+                )
             )
             continue
         try:
@@ -372,7 +519,12 @@ def _read_case_files(
             elif name == "queries.sql":
                 # SQL that cannot be read cannot be shown to be read-only.
                 kind = "safety"
-            findings.append(Finding(kind, f"Could not read {name}: {exc}"))
+            findings.append(
+                Finding(
+                    kind,
+                    problem(f"could not read: {exc}", "save it as UTF-8", file=name),
+                )
+            )
     return texts, findings
 
 
@@ -385,14 +537,37 @@ def _all_findings(
         findings: list[Finding] = []
     except UnsafeSqlError as exc:
         queries = None
-        findings = [Finding("safety", f"queries.sql is not read-only: {exc}")]
+        findings = [
+            Finding(
+                "safety",
+                problem(
+                    f"not read-only: {exc}",
+                    "remove the locking clause and keep the query"
+                    if locking_clause_is_the_problem(texts.get("queries.sql", ""))
+                    else "remove the statement. This file keeps read-only SQL only",
+                    file="queries.sql",
+                    line=first_unsafe_line(texts.get("queries.sql", "")),
+                ),
+            )
+        ]
     findings.extend(_shape_findings(case_path, brief))
     findings.extend(
         evidence_findings(case_path, strict_completion=rigour == "decision")
     )
     question = extract_section(brief, "Question")
-    if question is None or question.lower().startswith("research:"):
-        findings.append(Finding("format", "brief.md has no specific research question"))
+    if question is not None and question.lower().startswith("research:"):
+        findings.append(
+            Finding(
+                "format",
+                problem(
+                    "the question is still the scaffold text",
+                    "write the specific question under `## Question`",
+                    file="brief.md",
+                    line=line_of(brief, question),
+                ),
+            )
+        )
+    findings.extend(_brief_field_findings(case_path, brief))
     findings.extend(_coverage_findings(case_path, brief))
     findings.extend(_report_findings(texts["report.md"], rigour))
     findings.extend(_source_object_findings(case_path, texts.get("source-objects.md")))
@@ -408,7 +583,7 @@ def _load_overrides(case_path: Path) -> list[Override]:
         return OverridesFile.model_validate_json(read_text(path)).overrides
     except ValidationError as exc:
         raise ValueError(
-            f"{OVERRIDES_FILE} is invalid: {exc.errors()[0]['msg']}"
+            "\n".join(validation_problems(exc, OVERRIDES_FILE, read_text(path)))
         ) from exc
 
 
@@ -450,7 +625,8 @@ class Assessment:
 
 
 def _one_line(text: str, limit: int = 160) -> str:
-    flat = " ".join(text.split())
+    """Shorten a finding for a label: what was accepted, without how to fix it."""
+    flat = " ".join(text.split(". Fix: ", maxsplit=1)[0].split())
     return flat if len(flat) <= limit else f"{flat[:limit]}..."
 
 
@@ -524,7 +700,11 @@ def accept_findings(case_path: Path, reason: str, *, pinned: bool = False) -> li
     """
     text = reason.strip()
     if not text:
-        raise ValueError("--accept needs a short reason")
+        raise ValueError(
+            problem(
+                "--accept has no reason", 'use --accept "<why a person accepts this>"'
+            )
+        )
     current = assess_case(case_path, strict_completion=True, pinned=pinned)
     accepted = [
         *(error for error in current.errors if error not in current.hard_errors),

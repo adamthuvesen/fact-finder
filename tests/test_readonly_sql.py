@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from agentic_research_loop.readonly_sql import ReadOnlySql, UnsafeSqlError
+from agentic_research_loop.readonly_sql import (
+    ReadOnlySql,
+    UnsafeSqlError,
+    locking_clause_is_the_problem,
+)
 
 
 @pytest.mark.parametrize(
@@ -203,3 +207,22 @@ def test_writes_the_parser_reads_as_reads_are_rejected(sql: str) -> None:
 )
 def test_json_operators_and_lookalike_names_stay_allowed(sql: str) -> None:
     assert ReadOnlySql.parse(sql).statement_count == 1
+
+
+@pytest.mark.parametrize(
+    ("sql", "only_the_clause"),
+    [
+        ("SELECT a FROM t FOR UPDATE", True),
+        ("SELECT a FROM t FOR UPDATE OF t, u SKIP LOCKED", True),
+        ("SELECT a FROM t FOR NO KEY UPDATE NOWAIT", True),
+        ("SELECT a FROM t LOCK IN SHARE MODE", True),
+        ("SELECT a FROM t FOR UPDATE; DELETE FROM t", False),
+        ("DELETE FROM t", False),
+        ("SELEC a FRM", False),
+    ],
+)
+def test_the_locking_hint_never_decides_safety(sql: str, only_the_clause: bool) -> None:
+    with pytest.raises(UnsafeSqlError):
+        ReadOnlySql.parse(sql)
+
+    assert locking_clause_is_the_problem(sql) is only_the_clause

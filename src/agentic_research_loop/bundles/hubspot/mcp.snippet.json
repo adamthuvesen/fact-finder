@@ -1,7 +1,0 @@
-{
-  "server_name": "hubspot",
-  "url": "https://mcp.hubspot.com",
-  "write_tools": [
-    "manage_crm_objects"
-  ]
-}

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from support.cases import fill_case
 
-from agentic_research_loop import research
+from agentic_research_loop import research, templates
 from agentic_research_loop.cli import main
 from agentic_research_loop.research import resolve_case_path
 
@@ -64,7 +64,7 @@ def test_init_points_at_the_goal_command(repo_root: Path, monkeypatch, capsys) -
 
     _init(repo_root, "next-step", "--template", "exploration")
 
-    assert "Next: uv run research goal" in capsys.readouterr().out
+    assert "Next: uv run research next" in capsys.readouterr().out
 
 
 def test_init_records_source_hint_in_the_brief(repo_root: Path, monkeypatch) -> None:
@@ -88,14 +88,14 @@ def test_init_rejects_a_hint_for_a_source_it_does_not_allow(
     )
 
     assert exit_code == 1
-    assert "Source hints require" in capsys.readouterr().err
+    assert "--source-hint names" in capsys.readouterr().err
 
 
 def test_init_rejects_an_unknown_source(repo_root: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(repo_root)
 
     assert main(["init", "unknown", "--sources", "nope"]) == 1
-    assert "Unknown source: nope" in capsys.readouterr().err
+    assert "unknown source nope" in capsys.readouterr().err
     assert not (repo_root / "research").exists()
 
 
@@ -126,7 +126,7 @@ def test_init_refuses_a_research_directory_outside_the_repo(
     (repo_root / "research").symlink_to(tmp_path)
 
     assert main(["init", "escaped"]) == 1
-    assert "must not resolve outside" in capsys.readouterr().err
+    assert "resolves outside" in capsys.readouterr().err
 
 
 def test_init_from_spec_uses_supplied_artifacts(repo_root: Path, monkeypatch) -> None:
@@ -183,7 +183,7 @@ def test_init_rejects_missing_context_path(
     )
 
     assert exit_code == 1
-    assert "Local context path" in capsys.readouterr().err
+    assert "--context-path" in capsys.readouterr().err
 
 
 def test_init_uses_the_supplied_question(repo_root: Path, monkeypatch) -> None:
@@ -216,7 +216,7 @@ def test_goal_uses_absolute_paths_and_the_validation_gate(
     assert str(case_path.resolve()) in output
     assert f'uv run research validate "{case_path.resolve()}" --strict' in output
     assert "independent subagent" in output
-    assert "review-snapshot" in output
+    assert f'research next "{case_path.resolve()}"' in output
 
 
 def test_goal_names_the_cases_own_sources(repo_root: Path, monkeypatch, capsys) -> None:
@@ -266,7 +266,7 @@ def test_validate_reports_a_missing_report(
     capsys.readouterr()
 
     assert main(["validate", case_path.name]) == 1
-    assert "Missing file: report.md" in capsys.readouterr().out
+    assert "report.md: the file is missing" in capsys.readouterr().out
 
 
 def test_resolve_case_path_ambiguous(repo_root: Path, monkeypatch) -> None:
@@ -276,7 +276,7 @@ def test_resolve_case_path_ambiguous(repo_root: Path, monkeypatch) -> None:
     (research / "2026-01-01-foo").mkdir()
     (research / "2026-01-02-foo").mkdir()
 
-    with pytest.raises(FileNotFoundError, match="Ambiguous"):
+    with pytest.raises(FileNotFoundError, match="matches"):
         resolve_case_path(repo_root, "foo")
 
 
@@ -373,7 +373,7 @@ def test_a_missing_case_is_a_clean_error(repo_root: Path, monkeypatch, capsys) -
     monkeypatch.chdir(repo_root)
 
     assert main(["goal", "no-such-case"]) == 1
-    assert "Could not find case" in capsys.readouterr().err
+    assert "no case" in capsys.readouterr().err
 
 
 def test_outside_a_project_is_a_clean_error(tmp_path, monkeypatch, capsys) -> None:
@@ -405,7 +405,7 @@ def test_validate_json_is_valid_for_a_missing_case(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["passed"] is False
-    assert "Could not find case" in payload["errors"][0]
+    assert "no case" in payload["errors"][0]
 
 
 def _root_cause_case_with_bad_plan(repo_root: Path) -> Path:
@@ -473,7 +473,8 @@ def test_malformed_project_tables_are_not_a_traceback(
 
 
 @pytest.mark.parametrize(
-    ("document", "text"), [("method", "# Research method"), ("evidence", "query_id")]
+    ("document", "text"),
+    [("method", "# Research method"), ("evidence", "review-snapshot")],
 )
 def test_contract_prints_packaged_documents(
     tmp_path, monkeypatch, capsys, document, text
@@ -555,7 +556,7 @@ def test_quick_answer_needs_very_little_ceremony(
 
     output = capsys.readouterr().out
     assert "Exploratory answer: no independent review." in output
-    assert "Warning:" in output
+    assert "Warnings:" in output
     assert "exploratory-complete" in (main(["list"]), capsys.readouterr().out)[1]
 
 
@@ -583,3 +584,135 @@ def test_rigour_flags_need_strict(repo_root, monkeypatch, capsys, flag) -> None:
 
     assert main(["validate", case_path.name, *flag]) == 1
     assert "need --strict" in capsys.readouterr().err
+
+
+def _consumer_with_field(repo_root: Path, monkeypatch) -> None:
+    monkeypatch.chdir(repo_root)
+    with (repo_root / "pyproject.toml").open("a", encoding="utf-8") as handle:
+        handle.write(
+            '\n[tool.agentic-research-loop]\nrequired_brief_fields = ["Owner"]\n'
+        )
+
+
+def test_a_consumers_required_field_is_scaffolded_and_blocks(
+    repo_root: Path, monkeypatch, capsys
+) -> None:
+    _consumer_with_field(repo_root, monkeypatch)
+    case_path = _init(repo_root, "owned", "--local-only", "--question", "Why?")
+    report = case_path / "report.md"
+    report.write_text(
+        report.read_text(encoding="utf-8").replace(
+            "<!-- research:placeholder -->",
+            "Failures rose from 100 to 412 after the deploy, and the deploy explains it.",
+            1,
+        ),
+        encoding="utf-8",
+    )
+    brief = case_path / "brief.md"
+    assert "## Owner" in brief.read_text(encoding="utf-8")
+    capsys.readouterr()
+
+    assert main(["validate", case_path.name, "--strict"]) == 1
+    assert "brief.md:" in capsys.readouterr().out
+
+    brief.write_text(
+        brief.read_text(encoding="utf-8").replace(
+            "<!-- research:placeholder -->", "Adam"
+        ),
+        encoding="utf-8",
+    )
+    assert main(["validate", case_path.name, "--strict"]) == 0
+
+
+def test_a_malformed_required_field_setting_is_a_clean_error(
+    repo_root: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(repo_root)
+    with (repo_root / "pyproject.toml").open("a", encoding="utf-8") as handle:
+        handle.write(
+            '\n[tool.agentic-research-loop]\nrequired_brief_fields = "Owner"\n'
+        )
+
+    assert main(["init", "x", "--local-only"]) == 1
+
+    assert 'Fix: write required_brief_fields = ["Owner"]' in capsys.readouterr().err
+
+
+def test_a_new_entry_in_the_required_fields_tuple_is_scaffolded(
+    repo_root: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(repo_root)
+    fields = ("Question", "Owner")
+    monkeypatch.setattr(templates, "REQUIRED_BRIEF_FIELDS", fields)
+    monkeypatch.setattr(research, "REQUIRED_BRIEF_FIELDS", fields, raising=False)
+
+    case_path = _init(repo_root, "tuple", "--local-only", "--question", "Why?")
+
+    brief = (case_path / "brief.md").read_text(encoding="utf-8")
+    assert brief.count("## Owner") == 1
+    assert brief.count("## Question") == 1
+
+
+@pytest.mark.parametrize(
+    ("setting", "fix"),
+    [
+        ("sources_dir = 3", "sources_dir is not a string"),
+        ('required_brief_fields = [""]', "required_brief_fields is not a list"),
+        ('required_brief_fields = ["  "]', "required_brief_fields is not a list"),
+        ("gsc_site = 3", "gsc_site is not a string"),
+    ],
+)
+def test_a_bad_setting_names_its_key_and_fix(
+    repo_root: Path, monkeypatch, capsys, setting: str, fix: str
+) -> None:
+    monkeypatch.chdir(repo_root)
+    with (repo_root / "pyproject.toml").open("a", encoding="utf-8") as handle:
+        handle.write(f"\n[tool.agentic-research-loop]\n{setting}\n")
+    command = (
+        [
+            "gsc",
+            "--start-date",
+            "2026-01-01",
+            "--end-date",
+            "2026-01-02",
+            "--dimensions",
+            "query",
+        ]
+        if setting.startswith("gsc_site")
+        else ["source", "list"]
+        if setting.startswith("sources_dir")
+        else ["init", "x", "--local-only"]
+    )
+
+    assert main(command) == 1
+
+    err = capsys.readouterr().err
+    assert fix in err
+    assert "pyproject.toml" in err
+    assert "Fix:" in err
+
+
+def test_from_spec_adds_a_consumers_required_field_and_keeps_a_supplied_one(
+    repo_root: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(repo_root)
+    with (repo_root / "pyproject.toml").open("a", encoding="utf-8") as handle:
+        handle.write(
+            '\n[tool.agentic-research-loop]\nrequired_brief_fields = ["Owner", "Budget"]\n'
+        )
+    spec = repo_root / "spec"
+    spec.mkdir()
+    (spec / "brief.md").write_text(
+        "# Research Brief\n\n## Question\n\nWhy?\n\n## Budget\n\nTen hours.\n",
+        encoding="utf-8",
+    )
+
+    case_path = _init(
+        repo_root, "spec-fields", "--from-spec", str(spec), "--local-only"
+    )
+
+    brief = (case_path / "brief.md").read_text(encoding="utf-8")
+    assert brief.count("## Owner") == 1
+    assert "<!-- research:placeholder -->" in brief.split("## Owner", 1)[1]
+    assert brief.count("## Budget") == 1
+    assert "Ten hours." in brief

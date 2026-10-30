@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+from .feedback import problem
+
 RECOGNIZED_FILES = {
     "brief.md": "brief",
     "plan.md": "plan",
@@ -20,7 +22,12 @@ def load_from_spec_dir(path: Path) -> dict[str, str]:
     recognized file is not UTF-8. Warns on stderr when no recognized file exists.
     """
     if not path.is_dir():
-        raise FileNotFoundError(f"--from-spec path is not a directory: {path}")
+        raise FileNotFoundError(
+            problem(
+                f"--from-spec {path} is not a directory",
+                "pass a directory of artifacts",
+            )
+        )
 
     loaded: dict[str, str] = {}
     for name, key in RECOGNIZED_FILES.items():
@@ -31,7 +38,7 @@ def load_from_spec_dir(path: Path) -> dict[str, str]:
             loaded[key] = file_path.read_text(encoding="utf-8")
         except UnicodeDecodeError as exc:
             raise ValueError(
-                f"--from-spec file is not valid UTF-8: {file_path}"
+                problem("not valid UTF-8", "save it as UTF-8", file=str(file_path))
             ) from exc
 
     if not loaded:

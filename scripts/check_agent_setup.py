@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Check the local prerequisites for running research inside a native goal.
 
-The MCP server list is read from the committed `.mcp.json`, so this checks
+The MCP server list is read from the local `.mcp.json`, so this checks
 exactly the bundles you enabled rather than a fixed roster. `.codex/config.toml`
 and `.cursor/mcp.json` are local-only files created by `research source enable`.
 `research doctor` checks that the three agree and that read-only controls hold.
@@ -100,7 +100,9 @@ def _check_server(name: str, spec: dict) -> CheckResult:
         # Remote servers authenticate per provider on first use.
         hint += " | First run: use `/mcp` in Claude Code to approve and authenticate."
     else:
-        hint += " | Check the bundle's SETUP.md for its credential or config step."
+        hint += (
+            " | Run `research source show <name>` for its credential or config step."
+        )
     return CheckResult(name, ok=False, message=hint)
 
 

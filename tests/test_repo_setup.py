@@ -5,7 +5,7 @@ import tomllib
 from pathlib import Path
 
 from agentic_research_loop.cli import main
-from agentic_research_loop.repo_setup import PACKAGED_SKILLS, link_skills
+from agentic_research_loop.repo_setup import PACKAGE, link_skills
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,7 +64,7 @@ def test_setup_reports_a_restored_server_and_deny_list(
     repo = _consumer(tmp_path, monkeypatch)
     main(["source", "enable", "stripe"])
     (repo / ".cursor" / "mcp.json").write_text('{"mcpServers": {}}')
-    (repo / ".claude" / "settings.json").write_text("{}")
+    (repo / ".claude" / "settings.local.json").write_text("{}")
     capsys.readouterr()
 
     assert main(["setup"]) == 0
@@ -76,7 +76,7 @@ def test_setup_reports_a_restored_server_and_deny_list(
 
 
 def test_package_declares_its_types() -> None:
-    assert (PACKAGED_SKILLS.parent / "py.typed").exists()
+    assert (PACKAGE / "py.typed").exists()
 
 
 def test_setup_keeps_a_local_skill(tmp_path, monkeypatch) -> None:
@@ -93,7 +93,7 @@ def test_setup_keeps_a_local_skill(tmp_path, monkeypatch) -> None:
 def test_committed_skill_links_point_into_the_package() -> None:
     for name in ("research-goal", "research-spec"):
         link = ROOT / ".agents" / "skills" / name
-        assert link.resolve() == (PACKAGED_SKILLS / name).resolve()
+        assert link.resolve() == (PACKAGE / "skills" / name).resolve()
 
 
 def test_setup_keeps_a_users_symlinked_skill(tmp_path, monkeypatch) -> None:
@@ -117,4 +117,4 @@ def test_setup_repoints_a_stale_engine_link(tmp_path, monkeypatch) -> None:
 
     link_skills(repo)
 
-    assert link.resolve() == (PACKAGED_SKILLS / "research-goal").resolve()
+    assert link.resolve() == (PACKAGE / "skills" / "research-goal").resolve()

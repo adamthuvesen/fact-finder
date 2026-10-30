@@ -13,5 +13,4 @@ def repo_root(tmp_path: Path) -> Path:
         "[project]\nname = 'agentic-research-loop'\nversion = '0.1.0'\n",
         encoding="utf-8",
     )
-    (root / "program.md").write_text("# test program\n", encoding="utf-8")
     return root

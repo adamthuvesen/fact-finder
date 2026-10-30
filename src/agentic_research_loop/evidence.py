@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, DecimalException, localcontext
@@ -22,6 +23,7 @@ from pydantic import (
     model_validator,
 )
 
+from .feedback import line_of, problem, validation_problems
 from .io import read_text
 from .layout import as_table, evidence_path, queries_path, report_path, review_path
 from .readonly_sql import ReadOnlySql, UnsafeSqlError
@@ -81,6 +83,7 @@ SCAFFOLD_COVERAGE_REASON = "Source discovery has not run."
 
 
 STALE_REVIEW = "review.json is stale"
+SNAPSHOT_COMMAND = "`research review-snapshot <case>`"
 ACCEPTED_GAPS_START = "<!-- research:accepted-gaps:start -->"
 ACCEPTED_GAPS_END = "<!-- research:accepted-gaps:end -->"
 ACCEPTED_GAPS_BLOCK = re.compile(
@@ -130,14 +133,19 @@ class Source(StrictModel):
     @classmethod
     def iso_timestamp(cls, value: object) -> object:
         if not isinstance(value, str) or "T" not in value:
-            raise ValueError("accessed_at must be an ISO datetime with a time zone")
+            raise ValueError(
+                "accessed_at is not an ISO datetime. Fix: use a value such as "
+                "2026-01-31T09:00:00+00:00"
+            )
         return value
 
     @field_validator("accessed_at")
     @classmethod
     def timezone_required(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("accessed_at must include a time zone")
+            raise ValueError(
+                "accessed_at has no time zone. Fix: add an offset such as +00:00"
+            )
         return value
 
 
@@ -158,7 +166,7 @@ class CalculationInput(StrictModel):
     @classmethod
     def reject_boolean(cls, value: object) -> object:
         if isinstance(value, bool):
-            raise ValueError("numeric inputs cannot be booleans")  # noqa: TRY004 - pydantic reports only ValueError
+            raise ValueError("value is a boolean. Fix: use a number")  # noqa: TRY004 - pydantic reports only ValueError
         return value
 
 
@@ -175,28 +183,48 @@ class Calculation(StrictModel):
     @classmethod
     def reject_boolean(cls, value: object) -> object:
         if isinstance(value, bool):
-            raise ValueError("numeric values cannot be booleans")  # noqa: TRY004 - pydantic reports only ValueError
+            raise ValueError("value is a boolean. Fix: use a number")  # noqa: TRY004 - pydantic reports only ValueError
         return value
 
     @model_validator(mode="after")
     def valid_operation(self) -> Self:
         names = [item.name for item in self.inputs]
         if len(names) != len(set(names)):
-            raise ValueError("calculation input names must be unique")
+            raise ValueError(
+                f"calculation {self.id} repeats an input name. Fix: name each input once"
+            )
         if self.operation in {"difference", "ratio"} and len(self.inputs) != 2:
-            raise ValueError(f"{self.operation} requires exactly two inputs")
+            raise ValueError(
+                f"calculation {self.id}: {self.operation} needs exactly two inputs, "
+                f"not {len(self.inputs)}. Fix: use two inputs, or the sum operation"
+            )
         if self.operation == "ratio":
             if self.denominator not in names:
-                raise ValueError("ratio requires a named denominator input")
+                raise ValueError(
+                    f"calculation {self.id}: ratio has no named denominator. "
+                    f"Fix: set denominator to one of {', '.join(names)}"
+                )
             if next(i.value for i in self.inputs if i.name == self.denominator) == 0:
-                raise ValueError("ratio denominator cannot be zero")
+                raise ValueError(
+                    f"calculation {self.id}: the ratio denominator is zero. "
+                    "Fix: use a nonzero denominator, or remove the calculation"
+                )
         elif self.denominator is not None:
-            raise ValueError("denominator is only valid for ratio calculations")
+            raise ValueError(
+                f"calculation {self.id}: denominator applies only to ratio. "
+                "Fix: remove denominator"
+            )
         if len({item.unit for item in self.inputs}) != 1:
-            raise ValueError("calculation inputs must use the same unit")
+            raise ValueError(
+                f"calculation {self.id}: inputs use different units. "
+                "Fix: convert the inputs to one unit"
+            )
         expected_unit = "ratio" if self.operation == "ratio" else self.inputs[0].unit
         if self.unit != expected_unit:
-            raise ValueError(f"calculation result unit must be {expected_unit!r}")
+            raise ValueError(
+                f"calculation {self.id}: unit is {self.unit!r}. "
+                f"Fix: set unit to {expected_unit!r}"
+            )
         return self
 
     def computed_result(self) -> Decimal:
@@ -222,11 +250,17 @@ class Claim(StrictModel):
     @model_validator(mode="after")
     def matching_marker(self) -> Self:
         if self.report_marker != f"[{self.id}]":
-            raise ValueError("report_marker must match the claim id")
+            raise ValueError(
+                f"claim {self.id}: report_marker is {self.report_marker}. "
+                f"Fix: set report_marker to [{self.id}]"
+            )
         if (
             self.kind == "causal" or self.status == "inconclusive"
         ) and not self.limitations:
-            raise ValueError("causal and inconclusive claims need explicit limitations")
+            raise ValueError(
+                f"claim {self.id} is {self.kind} and {self.status} with no limitations. "
+                "Fix: add at least one limitation"
+            )
         return self
 
 
@@ -239,43 +273,83 @@ class Evidence(StrictModel):
 
     @model_validator(mode="after")
     def valid_references(self) -> Self:
-        for name in ("sources", "claims", "calculations"):
-            ids = [item.id for item in getattr(self, name)]
-            if len(ids) != len(set(ids)):
-                raise ValueError(f"duplicate {name} ids")
-        families = [item.family for item in self.coverage]
-        if len(families) != len(set(families)):
-            raise ValueError("duplicate coverage families")
-        source_ids = {item.id for item in self.sources}
-        calculation_ids = {item.id for item in self.calculations}
-        used_families = {item.family for item in self.sources}
-        declared_used = {item.family for item in self.coverage if item.status == "used"}
-        if used_families != declared_used:
-            raise ValueError(
-                "used coverage families must exactly match source families"
-            )
-        for calculation in self.calculations:
-            for item in calculation.inputs:
-                if item.source_id not in source_ids:
-                    raise ValueError(
-                        f"{calculation.id}: unknown source {item.source_id}"
-                    )
-        for claim in self.claims:
-            if not set(claim.source_ids) <= source_ids:
-                raise ValueError(f"{claim.id}: unknown source reference")
-            if not set(claim.calculation_ids) <= calculation_ids:
-                raise ValueError(f"{claim.id}: unknown calculation reference")
-            referenced_sources = {
-                item.source_id
-                for calculation in self.calculations
-                if calculation.id in claim.calculation_ids
-                for item in calculation.inputs
-            }
-            if not referenced_sources <= set(claim.source_ids):
-                raise ValueError(
-                    f"{claim.id}: calculation sources missing from source_ids"
-                )
+        problems = _reference_problems(self)
+        if problems:
+            raise ValueError("\n".join(problems))
         return self
+
+
+def _unknown_reference(owner: str, kind: str, missing: str, declared: set[str]) -> str:
+    known = ", ".join(sorted(declared))
+    only = f"only {known} is declared" if known else f"no {kind} is declared"
+    use = f"use {known}, or add" if known else "add"
+    return f"{owner} {missing}, but {only}. Fix: {use} {missing} to {kind}s"
+
+
+def _reference_problems(evidence: Evidence) -> list[str]:
+    """List every broken reference at once, so one pass can fix them all."""
+    problems = [
+        f"{name} id {item} appears more than once. Fix: give each entry its own id"
+        for name, items in (
+            ("source", evidence.sources),
+            ("claim", evidence.claims),
+            ("calculation", evidence.calculations),
+        )
+        for item, count in Counter(entry.id for entry in items).items()
+        if count > 1
+    ]
+    problems.extend(
+        f"coverage lists {family} more than once. Fix: keep one entry for {family}"
+        for family, count in Counter(i.family for i in evidence.coverage).items()
+        if count > 1
+    )
+    source_ids = {item.id for item in evidence.sources}
+    calculation_ids = {item.id for item in evidence.calculations}
+    used_families = {item.family for item in evidence.sources}
+    declared_used = {item.family for item in evidence.coverage if item.status == "used"}
+    problems.extend(
+        f'sources use family {family}, but coverage does not mark it used. Fix: set its coverage status to "used"'
+        for family in sorted(used_families - declared_used)
+    )
+    problems.extend(
+        f"coverage marks {family} used, but no source has that family. Fix: add its source, or change the status"
+        for family in sorted(declared_used - used_families)
+    )
+    for calculation in evidence.calculations:
+        problems.extend(
+            _unknown_reference(
+                f"calculation {calculation.id} uses",
+                "source",
+                item.source_id,
+                source_ids,
+            )
+            for item in calculation.inputs
+            if item.source_id not in source_ids
+        )
+    for claim in evidence.claims:
+        problems.extend(
+            _unknown_reference(f"claim {claim.id} cites", "source", missing, source_ids)
+            for missing in claim.source_ids
+            if missing not in source_ids
+        )
+        problems.extend(
+            _unknown_reference(
+                f"claim {claim.id} cites", "calculation", missing, calculation_ids
+            )
+            for missing in claim.calculation_ids
+            if missing not in calculation_ids
+        )
+        through_calculations = {
+            item.source_id
+            for calculation in evidence.calculations
+            if calculation.id in claim.calculation_ids
+            for item in calculation.inputs
+        }
+        problems.extend(
+            f"claim {claim.id} uses a calculation that reads {source}, but its source_ids omit it. Fix: add {source} to source_ids"
+            for source in sorted(through_calculations - set(claim.source_ids))
+        )
+    return problems
 
 
 class Objection(StrictModel):
@@ -301,8 +375,8 @@ class Review(StrictModel):
     def named_reviewer(cls, value: str) -> str:
         if not reviewer_is_named(value):
             raise ValueError(
-                f"reviewer {value!r} names no independent reviewer; "
-                "record the subagent name or task id"
+                f"reviewer {value!r} names no independent reviewer. "
+                "Fix: record the subagent name or task id"
             )
         return value
 
@@ -310,11 +384,18 @@ class Review(StrictModel):
     def complete_snapshot(self) -> Self:
         missing = set(REVIEW_FILES) - self.reviewed_hashes.keys()
         if missing:
-            raise ValueError("reviewed_hashes missing: " + ", ".join(sorted(missing)))
+            raise ValueError(
+                f"reviewed_hashes omits {', '.join(sorted(missing))}. "
+                f"Fix: ask a new independent reviewer to review the current files, and to "
+                f"record the hashes {SNAPSHOT_COMMAND} prints; never fill in a hash yourself"
+            )
         if self.verdict == "pass" and any(
             item.disposition == "blocking" for item in self.objections
         ):
-            raise ValueError("passing review cannot contain blocking objections")
+            raise ValueError(
+                "verdict is pass with a blocking objection. "
+                'Fix: resolve the objection, or set verdict to "blocked"'
+            )
         return self
 
 
@@ -338,13 +419,13 @@ def evidence_template(allowed_sources: list[str]) -> str:
 
 
 def declared_query_ids(case_path: Path) -> frozenset[str]:
-    """Return the ids `queries.sql` declares, or none when it is missing or unsafe."""
+    """Return the ids `queries.sql` declares, or none when it is missing, unreadable, or unsafe."""
     path = queries_path(case_path)
     if not path.exists():
         return frozenset()
     try:
         return ReadOnlySql.parse(read_text(path)).query_ids
-    except UnsafeSqlError:
+    except (OSError, UnicodeError, UnsafeSqlError):
         return frozenset()
 
 
@@ -361,12 +442,29 @@ def _case_file(case_path: Path, name: str) -> Path:
         or "\\" in name
         or relative.as_posix() != name
     ):
-        raise UnsafeArtifactPathError(f"unsafe case artifact path: {name}")
+        raise UnsafeArtifactPathError(
+            problem(
+                f"unsafe case artifact path {name}",
+                "use a plain relative path inside the case, such as evidence/data.csv",
+                file="evidence.json",
+            )
+        )
     path = (case_path / name).resolve()
     if not path.is_relative_to(case_path.resolve()):
-        raise UnsafeArtifactPathError(f"case artifact escapes case directory: {name}")
+        raise UnsafeArtifactPathError(
+            problem(
+                f"artifact {name} escapes the case directory",
+                "copy the file into the case and cite the copy",
+                file="evidence.json",
+            )
+        )
     if not path.is_file():
-        raise ValueError(f"missing case artifact: {name}")
+        raise ValueError(
+            problem(
+                f"artifact {name} does not exist",
+                f"save it at {name} in the case, or correct the path",
+            )
+        )
     return path
 
 
@@ -386,13 +484,15 @@ def _unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError(f"duplicate JSON key: {key}")
+            raise ValueError(
+                problem(f"duplicate JSON key {key}", f'keep one "{key}" in this object')
+            )
         result[key] = value
     return result
 
 
 def _reject_constant(value: str) -> None:
-    raise ValueError(f"non-finite JSON number: {value}")
+    raise ValueError(problem(f"non-finite JSON number {value}", "use a finite number"))
 
 
 def _read_json(case_path: Path, name: str) -> object:
@@ -403,12 +503,35 @@ def _read_json(case_path: Path, name: str) -> object:
             parse_constant=_reject_constant,
             object_pairs_hook=_unique_keys,
         )
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            problem(
+                f"not valid JSON: {exc.msg}",
+                "correct the JSON syntax",
+                file=name,
+                line=exc.lineno,
+            )
+        ) from exc
     except RecursionError as exc:
-        raise ValueError(f"{name} is nested too deeply") from exc
+        raise ValueError(
+            problem("nested too deeply", "flatten the document", file=name)
+        ) from exc
+
+
+def _load_artifact[ModelT: StrictModel](
+    case_path: Path, name: str, model: type[ModelT]
+) -> ModelT:
+    """Parse one manifest. Any failure is a ValueError with one fixable problem per line."""
+    document = _read_json(case_path, name)
+    try:
+        return model.model_validate(document)
+    except ValidationError as exc:
+        text = read_text(case_path / name)
+        raise ValueError("\n".join(validation_problems(exc, name, text))) from exc
 
 
 def load_evidence(case_path: Path) -> Evidence:
-    return Evidence.model_validate(_read_json(case_path, evidence_path(case_path).name))
+    return _load_artifact(case_path, evidence_path(case_path).name, Evidence)
 
 
 def review_snapshot(case_path: Path) -> dict[str, str]:
@@ -419,6 +542,7 @@ def review_snapshot(case_path: Path) -> dict[str, str]:
 
 
 def _calculation_error(calculation: Calculation) -> str | None:
+    fix = "recompute result and record the correct value, or correct the inputs"
     values = [
         *(item.value for item in calculation.inputs),
         calculation.result,
@@ -440,11 +564,24 @@ def _calculation_error(calculation: Calculation) -> str | None:
             )
             computed = calculation.computed_result()
             if not computed.is_finite():
-                return f"{calculation.id}: calculation produced a nonfinite result"
+                return problem(
+                    f"calculation {calculation.id} produced a nonfinite result",
+                    fix,
+                    file="evidence.json",
+                )
             if abs(computed - calculation.result) > calculation.tolerance:
-                return f"{calculation.id}: calculation result does not reconcile"
+                return problem(
+                    f"calculation {calculation.id} result {calculation.result} does not "
+                    f"reconcile: the inputs give {computed}",
+                    fix,
+                    file="evidence.json",
+                )
     except (DecimalException, ValueError, OverflowError) as exc:
-        return f"{calculation.id}: calculation could not be evaluated: {exc}"
+        return problem(
+            f"calculation {calculation.id} could not be evaluated: {exc}",
+            fix,
+            file="evidence.json",
+        )
     return None
 
 
@@ -457,20 +594,31 @@ def _source_findings(case_path: Path, evidence: Evidence) -> list[Finding]:
                 findings.append(
                     Finding(
                         "contract",
-                        f"{source.id}: artifact sha256 mismatch: {source.artifact}",
+                        problem(
+                            f"source {source.id}: sha256 does not match {source.artifact}",
+                            f"run `shasum -a 256 {source.artifact}` in the case and record "
+                            "the hash, after checking that the file is the one you read",
+                            file="evidence.json",
+                        ),
                     )
                 )
         except UnsafeArtifactPathError as exc:
             findings.append(Finding("safety", str(exc)))
         except (OSError, ValueError) as exc:
-            findings.append(Finding("contract", str(exc)))
+            findings.extend(
+                Finding("contract", entry)
+                for entry in _problem_lines(exc, "evidence.json")
+            )
         if source.query_id is not None and source.query_id not in query_ids:
             findings.append(
                 Finding(
                     "format",
-                    f"{source.id}: query_id {source.query_id} has no "
-                    f"`-- query_id: {source.query_id}` comment above a statement in "
-                    "queries.sql",
+                    problem(
+                        f"source {source.id}: query_id {source.query_id} has no statement",
+                        f"add `-- query_id: {source.query_id}` above its statement in "
+                        "queries.sql",
+                        file="evidence.json",
+                    ),
                 )
             )
     return findings
@@ -484,16 +632,31 @@ def _marker_findings(
     try:
         report = _case_file(case_path, "report.md").read_text(encoding="utf-8")
     except (OSError, UnicodeError, ValueError) as exc:
-        return [Finding("format", str(exc))]
+        return [Finding("format", entry) for entry in _problem_lines(exc, "report.md")]
     markers = set(re.findall(r"\[C[0-9]+\]", without_accepted_gaps(report)))
     declared = {claim.report_marker for claim in evidence.claims}
     findings = [
-        Finding("format", f"report.md references unknown claim {marker}")
+        Finding(
+            "format",
+            problem(
+                f"marker {marker} names no claim",
+                f"add the claim to evidence.json, or remove {marker}",
+                file="report.md",
+                line=line_of(report, marker),
+            ),
+        )
         for marker in sorted(markers - declared)
     ]
     if strict_completion:
         findings.extend(
-            Finding("format", f"report.md is missing claim marker {marker}")
+            Finding(
+                "format",
+                problem(
+                    f"claim marker {marker} is missing",
+                    f"add {marker} after the sentence it supports",
+                    file="report.md",
+                ),
+            )
             for marker in sorted(declared - markers)
         )
     return findings
@@ -505,38 +668,82 @@ def _review_findings(case_path: Path, *, strict_completion: bool) -> list[Findin
             [
                 Finding(
                     "contract",
-                    "Missing review.json: obtain an independent final challenge",
+                    problem(
+                        "the independent review is missing",
+                        f"ask a new independent reviewer to write it; run "
+                        f"`research review-snapshot {case_path.name}` for the hashes it records",
+                        file="review.json",
+                    ),
                 )
             ]
             if strict_completion
             else []
         )
     try:
-        review = Review.model_validate(_read_json(case_path, "review.json"))
-    except (OSError, UnicodeError, ValueError, ValidationError) as exc:
-        return [Finding("contract", f"Invalid review.json: {exc}")]
+        review = _load_artifact(case_path, "review.json", Review)
+    except (OSError, UnicodeError, ValueError) as exc:
+        return [
+            Finding("contract", entry.replace("<case>", case_path.name))
+            for entry in _problem_lines(exc, "review.json")
+        ]
     findings: list[Finding] = []
     if review.verdict != "pass":
-        findings.append(Finding("contract", "review.json verdict is blocked"))
+        findings.append(
+            Finding(
+                "contract",
+                problem(
+                    "verdict is blocked",
+                    "answer the blocking objections, then ask a new independent reviewer "
+                    f"to review again with `research review-snapshot {case_path.name}`",
+                    file="review.json",
+                ),
+            )
+        )
     try:
         current_hashes = review_snapshot(case_path)
-    except (OSError, UnicodeError, ValueError, ValidationError) as exc:
-        return [*findings, Finding("contract", f"Invalid review.json: {exc}")]
+    except (OSError, UnicodeError, ValueError) as exc:
+        return [
+            *findings,
+            *(
+                Finding("contract", entry)
+                for entry in _problem_lines(exc, "evidence.json")
+            ),
+        ]
     if set(review.reviewed_hashes) != set(current_hashes):
         findings.append(
             Finding(
-                "stale", "review.json snapshot must include exactly all review inputs"
+                "stale",
+                problem(
+                    f"{STALE_REVIEW}: its snapshot does not cover exactly the review inputs",
+                    f"ask a new independent reviewer to review the current files, with "
+                    f"`research review-snapshot {case_path.name}`; never edit a hash yourself",
+                ),
             )
         )
     findings.extend(
         Finding(
             "stale",
-            f"{STALE_REVIEW} for {name}: the reviewer did not see this edit",
+            problem(
+                f"{STALE_REVIEW} for {name}: the reviewer did not see this edit",
+                f"ask a new independent reviewer to re-check {name}, with "
+                f"`research review-snapshot {case_path.name}`; never edit a hash yourself",
+            ),
         )
         for name, digest in current_hashes.items()
         if review.reviewed_hashes.get(name) != digest
     )
     return findings
+
+
+def _problem_lines(exc: Exception, name: str) -> list[str]:
+    """Split a manifest failure into its problems, each naming `name`."""
+    text = str(exc)
+    if ". Fix: " not in text:
+        return [problem(text, "restore a readable file", file=name)]
+    return [
+        line if line.startswith(name) else f"{name}: {line}"
+        for line in text.split("\n")
+    ]
 
 
 def _unsafe_artifact_findings(case_path: Path) -> list[Finding]:
@@ -566,7 +773,17 @@ def evidence_findings(
     """Check evidence integrity and arithmetic, not the truth of prose claims."""
     if not evidence_path(case_path).exists():
         return (
-            [Finding("contract", "Missing evidence.json")]
+            [
+                Finding(
+                    "contract",
+                    problem(
+                        "the evidence manifest is missing",
+                        "see `research schema evidence`, or create the case with "
+                        "`--rigour decision`",
+                        file="evidence.json",
+                    ),
+                )
+            ]
             if strict_completion
             else _review_findings(case_path, strict_completion=False)
         )
@@ -574,10 +791,13 @@ def evidence_findings(
         evidence = load_evidence(case_path)
     except UnsafeArtifactPathError as exc:
         return [Finding("safety", str(exc))]
-    except (OSError, UnicodeError, ValueError, ValidationError) as exc:
+    except (OSError, UnicodeError, ValueError) as exc:
         return [
             *_unsafe_artifact_findings(case_path),
-            Finding("contract", f"Invalid evidence.json: {exc}"),
+            *(
+                Finding("contract", entry)
+                for entry in _problem_lines(exc, "evidence.json")
+            ),
         ]
 
     findings = _source_findings(case_path, evidence)
@@ -593,14 +813,25 @@ def evidence_findings(
         findings.append(
             Finding(
                 "contract",
-                "evidence.json needs at least one preserved source and claim",
+                problem(
+                    "no preserved source and claim yet",
+                    "preserve the raw result under evidence/, then add it to sources and "
+                    "add a claim that cites it",
+                    file="evidence.json",
+                ),
             )
         )
     if strict_completion:
         findings.extend(
             Finding(
                 "format",
-                f"evidence.json coverage for {item.family} is still the scaffold text",
+                problem(
+                    f"coverage for {item.family} is still the scaffold text",
+                    f"record whether {item.family} was used, unavailable, or not needed, "
+                    "and why",
+                    file="evidence.json",
+                    line=line_of(read_text(evidence_path(case_path)), item.family),
+                ),
             )
             for item in evidence.coverage
             if item.reason == SCAFFOLD_COVERAGE_REASON

@@ -1,4 +1,0 @@
-{
-  "server_name": "datadog",
-  "url": "https://mcp.datadoghq.com/api/unstable/mcp-server/mcp"
-}

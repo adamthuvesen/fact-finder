@@ -1,7 +1,0 @@
-{
-  "server_name": "bigquery",
-  "url": "https://bigquery.googleapis.com/mcp",
-  "write_tools": [
-    "execute_sql"
-  ]
-}

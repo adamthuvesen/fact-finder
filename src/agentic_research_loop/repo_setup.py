@@ -4,38 +4,45 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .source_bundles import enabled_bundles, wire_clients
+from .agent_hooks import install_hooks
+from .source_bundles import reconcile_clients
 from .sources import load_sources_file
 
-PACKAGED_SKILLS = Path(__file__).parent / "skills"
+PACKAGE = Path(__file__).parent
 SKILLS_DIR = (".agents", "skills")
 
 
-def _is_engine_link(link: Path) -> bool:
+def _is_engine_link(link: Path, kind: str) -> bool:
     """Recognize a link to an older install of this package, such as a rebuilt venv."""
     return (
-        link.readlink().as_posix().endswith(f"agentic_research_loop/skills/{link.name}")
+        link.readlink().as_posix().endswith(f"agentic_research_loop/{kind}/{link.name}")
     )
 
 
-def link_skills(repo_root: Path) -> list[str]:
-    """Link each packaged skill into `.agents/skills`, leaving a local skill alone."""
-    skills_dir = repo_root.joinpath(*SKILLS_DIR)
-    skills_dir.mkdir(parents=True, exist_ok=True)
+def _link_packaged(repo_root: Path, kind: str) -> list[str]:
+    """Link each packaged entry of `kind` into `.agents/`, leaving a local one alone."""
+    target_dir = repo_root / ".agents" / kind
+    target_dir.mkdir(parents=True, exist_ok=True)
     actions: list[str] = []
-    for source in sorted(path for path in PACKAGED_SKILLS.iterdir() if path.is_dir()):
-        link = skills_dir / source.name
+    for source in sorted(
+        path for path in (PACKAGE / kind).iterdir() if path.name != "__pycache__"
+    ):
+        link = target_dir / source.name
         if link.is_symlink() and link.resolve() == source.resolve():
             continue
-        if link.is_symlink() and _is_engine_link(link):
+        if link.is_symlink() and _is_engine_link(link, kind):
             link.unlink()
         elif link.is_symlink() or link.exists():
             continue
         link.symlink_to(
-            source.resolve().relative_to(skills_dir.resolve(), walk_up=True)
+            source.resolve().relative_to(target_dir.resolve(), walk_up=True)
         )
-        actions.append(f"linked skill {source.name} into .agents/skills")
+        actions.append(f"linked {source.name} into .agents/{kind}")
     return actions
+
+
+def link_skills(repo_root: Path) -> list[str]:
+    return _link_packaged(repo_root, "skills")
 
 
 def link_claude_skills(repo_root: Path) -> list[str]:
@@ -49,9 +56,10 @@ def link_claude_skills(repo_root: Path) -> list[str]:
 
 
 def setup_repo(repo_root: Path) -> list[str]:
-    bundles, _ = enabled_bundles(repo_root)
     return [
-        *wire_clients(repo_root, load_sources_file(repo_root), bundles),
+        *reconcile_clients(repo_root, load_sources_file(repo_root)),
         *link_skills(repo_root),
         *link_claude_skills(repo_root),
+        *_link_packaged(repo_root, "hooks"),
+        *install_hooks(repo_root),
     ]

@@ -12,14 +12,16 @@ import re
 from pathlib import Path
 from typing import Annotated, Literal, Self
 
-from pydantic import Field, ValidationError, model_validator
+from pydantic import Field, ValidationError, field_validator, model_validator
 
+from .feedback import line_of, problem, validation_problems
 from .io import read_text
 from .strict_model import StrictModel
 
 USER_SOURCES_FILE = "config/sources.json"
 LOCAL_FAMILY = "local"
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+NAME_FIX = "use lowercase letters, digits, '-' or '_', starting with a letter or digit"
 
 Text = Annotated[str, Field(min_length=1)]
 Transport = Literal["http-oauth", "stdio", "cli", "native"]
@@ -82,22 +84,44 @@ class ServerDefinition(StrictModel):
     args: list[str] = Field(default_factory=list[str])
     oauth: OAuthClient | None = None
     write_tools: list[Text] = Field(default_factory=list[str])
-    support_files: list[Text] = Field(default_factory=list[str])
+    # File name in `config/` to its content, copied there on enable.
+    support_files: dict[Text, str] = Field(default_factory=dict[str, str])
     placeholders: list[Text] = Field(default_factory=list[str])
-    # A value SETUP.md lets the user choose instead, as a full-match regex per default.
+    # A value `setup` lets the user choose instead, as a full-match regex per default.
     alternatives: dict[str, list[Text]] = Field(default_factory=dict[str, list[str]])
-    # An extra flag SETUP.md allows, with its value as `--flag=v` or as the next argument.
+    # An extra flag `setup` allows, with its value as `--flag=v` or as the next argument.
     optional_args: list[Text] = Field(default_factory=list[str])
+
+    @field_validator("support_files")
+    @classmethod
+    def plain_file_names(cls, value: dict[str, str]) -> dict[str, str]:
+        for name in value:
+            if name in {".", ".."} or "/" in name or "\\" in name:
+                raise ValueError(
+                    f"support_files key {name!r} is not a plain file name. "
+                    "Fix: use a name such as tools.yaml, which is copied to config/"
+                )
+        return value
 
     @model_validator(mode="after")
     def one_transport(self) -> Self:
         if (self.url is None) == (self.command is None):
-            raise ValueError("define exactly one of url or command")
+            raise ValueError(
+                "server has both or neither of url and command. Fix: keep one"
+            )
         return self
 
 
+class BundleFile(StrictModel):
+    """One source bundle: everything about a source lives in one `<name>.toml`."""
+
+    setup: Text
+    source: SourceSpec
+    server: ServerDefinition | None = None
+
+
 class Wiring(StrictModel):
-    """What the engine added to client files for one source, so disable removes only it."""
+    """What research added to this machine's client files for one source."""
 
     server_name: Text
     clients: list[Client]
@@ -107,6 +131,7 @@ class Wiring(StrictModel):
 
 class SourcesFile(StrictModel):
     sources: dict[str, SourceSpec]
+    # An older install kept ownership here. It is read once and no longer written.
     wiring: dict[str, Wiring] = Field(default_factory=dict[str, Wiring])
 
 
@@ -129,23 +154,20 @@ def _parse_document(text: str, label: str) -> SourcesFile:
     try:
         parsed = SourcesFile.model_validate_json(text)
     except ValidationError as exc:
-        problems = "; ".join(
-            ": ".join(filter(None, (".".join(map(str, error["loc"])), error["msg"])))
-            for error in exc.errors(include_url=False, include_input=False)
-        )
-        raise SourceConfigError(f"{label} is invalid: {problems}") from exc
+        raise SourceConfigError(
+            "\n".join(validation_problems(exc, label, text))
+        ) from exc
     for name in parsed.sources:
         if not NAME_PATTERN.match(name):
             raise SourceConfigError(
-                f"{label}: source name {name!r} must use lowercase letters, digits, "
-                "'-' or '_', and start with a letter or digit."
+                problem(
+                    f"source name {name!r} is not valid",
+                    NAME_FIX,
+                    file=label,
+                    line=line_of(text, name),
+                )
             )
     return parsed
-
-
-def parse_sources_file(text: str, label: str) -> dict[str, SourceSpec]:
-    """Parse a `{"sources": {name: spec}}` document, naming `label` in any error."""
-    return _parse_document(text, label).sources
 
 
 def user_sources_path(repo_root: Path) -> Path:
@@ -160,8 +182,11 @@ def load_sources_file(repo_root: Path) -> SourcesFile:
     for name in document.sources:
         if name in BUILTIN_SOURCES:
             raise SourceConfigError(
-                f"{USER_SOURCES_FILE} redefines built-in source {name!r}; "
-                "choose a different name."
+                problem(
+                    f"redefines the built-in source {name!r}",
+                    "choose a different name",
+                    file=USER_SOURCES_FILE,
+                )
             )
     return document
 
@@ -169,7 +194,9 @@ def load_sources_file(repo_root: Path) -> SourcesFile:
 def render_sources_file(document: SourcesFile) -> str:
     return (
         json.dumps(
-            document.model_dump(exclude_defaults=True), indent=2, ensure_ascii=False
+            document.model_dump(exclude_defaults=True, exclude={"wiring"}),
+            indent=2,
+            ensure_ascii=False,
         )
         + "\n"
     )
@@ -187,7 +214,12 @@ SENSITIVE_PATH_PARTS = frozenset(
 def _local_context_lines(raw_path: str) -> list[str]:
     path = Path(raw_path).expanduser().resolve()
     if not path.exists():
-        raise FileNotFoundError(f"Local context path does not exist: {path}")
+        raise FileNotFoundError(
+            problem(
+                f"--context-path {path} does not exist",
+                "pass an existing file or folder",
+            )
+        )
     lines = [f"Local context folder: {path}"]
     if path in (Path(path.anchor), Path.home().resolve()):
         lines.append(
@@ -216,13 +248,19 @@ def source_constraints(
     unknown = sorted(set(names) - registry.keys())
     if unknown:
         raise ValueError(
-            f"Unknown source: {', '.join(unknown)}. "
-            f"Valid sources: {', '.join(sorted(registry))}"
+            problem(
+                f"unknown source {', '.join(unknown)}",
+                f"use one of {', '.join(sorted(registry))}, or run "
+                f"`research source enable {unknown[0]}`",
+            )
         )
     unused_hints = sorted(set(hints) - set(names))
     if unused_hints:
         raise ValueError(
-            "Source hints require the source to be allowed: " + ", ".join(unused_hints)
+            problem(
+                f"--source-hint names {', '.join(unused_hints)}, which this case does not allow",
+                "add it to --sources, or remove the hint",
+            )
         )
     plan_lines = [registry[name].plan_line for name in names]
     hint_lines = [

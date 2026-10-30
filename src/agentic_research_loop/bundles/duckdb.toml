@@ -1,0 +1,45 @@
+setup = """
+**Server:** `mcp-server-motherduck` (MotherDuck) - stdio, run via
+`uvx mcp-server-motherduck`. One server covers both a local DuckDB file and
+cloud MotherDuck.
+
+**Read-only enforcement (`arg-absent:--read-write`):** the server is **read-only
+by default**. For a local file it opens DuckDB in read-only mode and does not
+hold the file lock. Adding `--read-write` enables writes - so the read-only
+guarantee is *not passing that flag*, which is what this bundle ships.
+
+## Enable (local DuckDB file)
+3. Set `--db-path` to the absolute path of your `.duckdb` file. Done - no
+   credentials needed for a local file.
+
+## MotherDuck cloud (optional)
+
+Instead of `--db-path`, set a `motherduck_token` env var. **For true read-only,
+use a read-scaling token** - a regular MotherDuck token effectively needs
+`--read-write`, so the token type is what enforces read-only in the cloud. Keep
+the token in your environment / secret manager, not in committed config.
+"""
+
+[source]
+display_name = "DuckDB"
+category = "warehouse"
+transport = "stdio"
+plan_line = "DuckDB for local analytical queries over files and embedded databases."
+notes = "Query a local DuckDB database or files (CSV/Parquet) via the MotherDuck MCP server, opened read-only. Discover objects live (SHOW TABLES / DESCRIBE) before querying — do not assume a schema. SELECT-only: the database is opened without --read-write. Good for ad-hoc analysis of exports without standing up a warehouse."
+sql_backed = true
+
+[source.read_only_control]
+mechanism = "arg_absent"
+detail = "--read-write"
+
+[server]
+server_name = "duckdb"
+command = "uvx"
+args = [
+  "mcp-server-motherduck",
+  "--db-path",
+  "/absolute/path/to/your.duckdb",
+]
+placeholders = [
+  "/absolute/path/to/your.duckdb",
+]

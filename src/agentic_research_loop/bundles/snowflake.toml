@@ -1,0 +1,91 @@
+setup = """
+**Server:** Snowflake MCP server
+([`snowflake-labs-mcp`](https://github.com/Snowflake-Labs/mcp)) - local stdio via
+`uvx`. Uses your **`default`** Snowflake connection.
+
+**Read-only enforcement (`statement_allowlist`):** read-only is pinned in
+`config/snowflake-mcp-tools.yaml`, which `research source enable snowflake` copies from
+this bundle and the server reads via `--service-config-file`.
+It permits **`SELECT` / `DESCRIBE` / `SHOW` / `USE` only** - never
+`ALTER`/`DELETE`/`DROP`. `research doctor` fails if the copy allows anything else.
+
+2. Create a personal `default` connection in `~/.snowflake/config.toml` (copy
+   `.agents/docs/examples/snowflake-config.toml.example` in the engine repo).
+   `externalbrowser` auth keeps credentials out of committed config.
+
+## Notes
+
+- Covers curated marts, staging tables, and semantic views. Discover objects live
+  (`SHOW TABLES` / `DESCRIBE` / `SHOW SEMANTIC VIEWS`) before querying.
+- **`semantic_manager` is set to `false`** in `snowflake-mcp-tools.yaml`: the
+  semantic-view query tool (`write_semantic_view_query`) bypasses the statement
+  allowlist and interpolates SQL, so it's disabled for read-only safety. Query
+  semantic views with `SELECT` through `run_snowflake_query` instead (allowlist-gated).
+- Adapt the `agent_services` block in `snowflake-mcp-tools.yaml` to your account, or
+  leave it empty to query semantic views / tables directly.
+"""
+
+[source]
+display_name = "Snowflake"
+category = "warehouse"
+transport = "stdio"
+plan_line = "Snowflake for live metrics and warehouse-backed evidence."
+notes = "Query live metrics via the Snowflake MCP server. Prefer curated marts and semantic views when they cover the question; else query staging tables. Verify objects live (SHOW TABLES / DESCRIBE / SHOW SEMANTIC VIEWS) before querying. Read-only — the server's SQL statement allowlist permits SELECT/DESCRIBE/SHOW/USE only, never ALTER/DELETE/DROP. The semantic-view write tool is disabled in config for read-only safety; query semantic views with SELECT via run_snowflake_query."
+sql_backed = true
+
+[source.read_only_control]
+mechanism = "statement_allowlist"
+detail = "config/snowflake-mcp-tools.yaml"
+
+[server]
+server_name = "snowflake"
+command = "/usr/bin/env"
+args = [
+  "-u",
+  "UV_ENV_FILE",
+  "uvx",
+  "--from",
+  "snowflake-labs-mcp",
+  "mcp-server-snowflake",
+  "--connection-name",
+  "default",
+  "--service-config-file",
+  "config/snowflake-mcp-tools.yaml",
+]
+write_tools = [
+  "write_semantic_view_query",
+]
+
+[server.support_files]
+"snowflake-mcp-tools.yaml" = """
+# Snowflake MCP service config, loaded by snowflake-labs-mcp via --service-config-file
+# (referenced from .mcp.json, .codex/config.toml, and .cursor/mcp.json).
+#
+# Read-only by design: SELECT/DESCRIBE/SHOW/USE only. No writes.
+#
+# Adapt `agent_services` to the Cortex Agents in your own Snowflake account, or leave
+# the list empty if you only query semantic views / tables directly.
+
+agent_services:
+  - service_name: EXAMPLE_AGENT
+    description: Example Cortex Agent — replace with your own, or remove this entry.
+    database_name: YOUR_DATABASE
+    schema_name: AGENTS
+
+search_services: []
+
+other_services:
+  object_manager: false
+  query_manager: true
+  # Read-only safety: the semantic_manager tool `write_semantic_view_query` bypasses
+  # the sql_statement_permissions allowlist and interpolates SQL, so keep it off.
+  # Query semantic views with SELECT through run_snowflake_query instead.
+  semantic_manager: false
+
+sql_statement_permissions:
+  - Select: true
+  - Describe: true
+  - Show: true
+  - Use: true
+  - Unknown: false
+"""
