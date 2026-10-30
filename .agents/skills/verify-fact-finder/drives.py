@@ -1,9 +1,11 @@
-"""Per-feature drive logic for the verify helper. Each drive uses only the public CLI."""
+"""Drive bodies for the verify helper. Each drive uses only the installed `research` CLI."""
 
 from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -275,7 +277,7 @@ def drive_consumer_setup(drive: Any) -> None:
     drive.expect(["contract", "method"], 0, "# Research method")
     drive.expect(["contract", "evidence"], 0, "review-snapshot")
     drive.check(
-        any(drive.target.parent.glob("venv/lib/*/site-packages/fact_finder/py.typed")),
+        any(drive.venv.glob("lib/*/site-packages/fact_finder/py.typed")),
         "the wheel has no py.typed",
     )
     for name in ("research-goal", "research-spec"):
@@ -325,12 +327,86 @@ def drive_agent_feedback(drive: Any) -> None:
     )
 
 
-FEATURES = {
-    "agent-feedback": drive_agent_feedback,
-    "case-lifecycle": drive_case_lifecycle,
-    "quick-answer": drive_quick_answer,
-    "lorem-gate": drive_lorem_gate,
-    "sql-gate": drive_sql_gate,
-    "sources": drive_sources,
-    "consumer-setup": drive_consumer_setup,
+PKG = "src/fact_finder/"
+
+
+@dataclass(frozen=True)
+class Drive:
+    proves: str
+    paths: tuple[str, ...]
+    run: Callable[[Any], None]
+
+
+DRIVES = {
+    "case-lifecycle": Drive(
+        "init, goal, strict validate, review hashes, list status, and a stale review after a late edit",
+        (
+            PKG + "research.py",
+            PKG + "validation.py",
+            PKG + "evidence.py",
+            PKG + "layout.py",
+            PKG + "templates.py",
+        ),
+        drive_case_lifecycle,
+    ),
+    "quick-answer": Drive(
+        "an exploratory answer passes strict without review; write SQL blocks and --accept cannot override it",
+        (PKG + "validation.py", PKG + "templates.py", PKG + "readonly_sql.py"),
+        drive_quick_answer,
+    ),
+    "lorem-gate": Drive(
+        "filler text and a non-independent reviewer fail strict validation",
+        (PKG + "validation.py", PKG + "evidence.py"),
+        drive_lorem_gate,
+    ),
+    "sql-gate": Drive(
+        "disguised writes are rejected and tricky reads pass, with no traceback",
+        (PKG + "readonly_sql.py", PKG + "validation.py"),
+        drive_sql_gate,
+    ),
+    "sources": Drive(
+        "source enable writes deny rules, doctor catches a non-readonly URL, broken config fails with a Fix",
+        (
+            PKG + "sources.py",
+            PKG + "source_bundles.py",
+            PKG + "client_configs.py",
+            PKG + "doctor.py",
+            PKG + "bundles/*",
+        ),
+        drive_sources,
+    ),
+    "consumer-setup": Drive(
+        "setup links skills from the wheel with relative links, is idempotent, and ships contracts and py.typed",
+        (
+            PKG + "repo_setup.py",
+            PKG + "skills/*",
+            PKG + "contract/*",
+            PKG + "client_configs.py",
+            PKG + "py.typed",
+        ),
+        drive_consumer_setup,
+    ),
+    "agent-feedback": Drive(
+        "source new, lint, next, and the installed edit hook give concrete Fix feedback",
+        (
+            PKG + "next_step.py",
+            PKG + "lint.py",
+            PKG + "feedback.py",
+            PKG + "agent_hooks.py",
+            PKG + "hooks/*",
+        ),
+        drive_agent_feedback,
+    ),
 }
+SMOKE = "case-lifecycle"
+EVERY_DRIVE = (
+    "pyproject.toml",
+    "uv.lock",
+    ".python-version",
+    ".agents/skills/verify-fact-finder/*",
+    PKG + "cli.py",
+    PKG + "io.py",
+    PKG + "strict_model.py",
+    PKG + "__init__.py",
+    PKG + "__main__.py",
+)

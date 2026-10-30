@@ -163,7 +163,7 @@ def test_scaffold_coverage_text_fails_strict(tmp_path: Path) -> None:
 
 
 def test_deeply_nested_evidence_is_a_clean_error(tmp_path: Path) -> None:
-    (tmp_path / "evidence.json").write_text("[" * 200000, encoding="utf-8")
+    (tmp_path / "evidence.json").write_text("[" * 1_000_000, encoding="utf-8")
 
     assert "nested too deeply" in validate_evidence(tmp_path)[0]
 

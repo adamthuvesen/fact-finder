@@ -12,8 +12,7 @@ agent goal. This file holds project facts. It is short because checks enforce th
 If a doc disagrees with code, fix the doc in the same change. Run `make quick` after each edit: it checks
 changed files and local cases under `research/`, and the edit hook runs it. Run `make check` before
 you commit: it is the whole gate, in about 15 seconds, and the first CI step. Prove
-user-facing changes with the `verify-fact-finder` skill at
-`.agents/skills/verify-fact-finder/`.
+changes with `make verify` (`verify-fact-finder` skill at `.agents/skills/verify-fact-finder/`).
 
 ## Stop and ask
 
@@ -61,3 +60,4 @@ Each "Enforced by" cell cites `path::name` (a function or class the file defines
 | No permission-bypass flag ships | `tests/test_readonly_contract.py::test_no_permission_bypass_flag_ships_anywhere` | 2026-11-04 |
 | Layers hold, and models forbid unknown fields | `make boundaries`, `make lint` (ruff TID251 bans pydantic.BaseModel) | 2026-11-04 |
 | Instruction text stays under its limit, and doc links resolve | `tests/test_docs_contract.py::test_all_instruction_text_stays_under_the_limit`, `tests/test_docs_contract.py::test_relative_doc_links_resolve` | 2026-11-04 |
+| `make verify` can fail: its control asserts a wrong result and must observe FAIL | `.agents/skills/verify-fact-finder/verify::control` | 2026-11-06 |

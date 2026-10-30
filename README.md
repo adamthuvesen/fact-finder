@@ -1,6 +1,6 @@
 # Fact Finder
 
-![License](https://img.shields.io/github/license/adamthuvesen/fact-finder) ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
+![License](https://img.shields.io/github/license/adamthuvesen/fact-finder) ![Python](https://img.shields.io/badge/python-3.14%2B-blue)
 
 A research kit for bounded investigations. Give it a question and a set of read-only
 sources. It creates a workspace, frames the case, and validates the evidence the

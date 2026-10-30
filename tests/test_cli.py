@@ -437,7 +437,7 @@ def test_one_bad_case_does_not_abort_list(repo_root, monkeypatch, capsys) -> Non
     bad = _init(repo_root, "bad-report")
     (bad / "report.md").write_bytes(b"\xff\xfe not utf8")
     deep = _init(repo_root, "deep-evidence", "--rigour", "decision")
-    (deep / "evidence.json").write_text("[" * 200000, encoding="utf-8")
+    (deep / "evidence.json").write_text("[" * 1_000_000, encoding="utf-8")
     _init(repo_root, "fine")
     capsys.readouterr()
 
@@ -452,7 +452,7 @@ def test_deep_evidence_snapshot_is_a_clean_error(
 ) -> None:
     monkeypatch.chdir(repo_root)
     case_path = _init(repo_root, "deep-snapshot", "--rigour", "decision")
-    (case_path / "evidence.json").write_text("[" * 200000, encoding="utf-8")
+    (case_path / "evidence.json").write_text("[" * 1_000_000, encoding="utf-8")
     capsys.readouterr()
 
     assert main(["review-snapshot", case_path.name]) == 1
