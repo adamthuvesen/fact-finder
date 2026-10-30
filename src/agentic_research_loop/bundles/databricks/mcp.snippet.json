@@ -1,0 +1,7 @@
+{
+  "server_name": "databricks",
+  "url": "https://YOUR-WORKSPACE.cloud.databricks.com/api/2.0/mcp/genie",
+  "placeholders": [
+    "YOUR-WORKSPACE"
+  ]
+}

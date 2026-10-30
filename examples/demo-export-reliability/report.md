@@ -11,7 +11,7 @@ scheduler change that moved **large warehouse export jobs** from overnight into
 business hours. Scheduled volume held flat (+2.0%), so the loss is a **queue
 contention** problem, not a demand spike. Average queue wait rose from 8 to 42
 minutes in the same window, consistent with heavy jobs competing with interactive
-load on the shared export queue.
+load on the shared export queue. [C1] [C2] [C3] [C4]
 
 ## Ranked Causes
 

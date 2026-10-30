@@ -1,0 +1,9 @@
+{
+  "server_name": "mixpanel",
+  "url": "https://mcp.mixpanel.com/mcp",
+  "write_tools": [
+    "Delete-Dashboard",
+    "Bulk-Edit-Properties",
+    "Bulk-Edit-Events"
+  ]
+}

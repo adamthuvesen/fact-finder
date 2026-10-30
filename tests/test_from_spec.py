@@ -70,16 +70,14 @@ def test_load_all_three_files(tmp_path: Path) -> None:
 def test_load_subset(tmp_path: Path) -> None:
     (tmp_path / "brief.md").write_text("only brief\n", encoding="utf-8")
     result = load_from_spec_dir(tmp_path)
-    assert result["brief"] == "only brief\n"
-    assert result["plan"] is None
-    assert result["notes"] is None
+    assert result == {"brief": "only brief\n"}
 
 
 def test_load_empty_dir_warns(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     result = load_from_spec_dir(tmp_path)
     captured = capsys.readouterr()
-    assert "empty" in captured.err
-    assert result == {"brief": None, "plan": None, "notes": None}
+    assert "no recognized artifact" in captured.err
+    assert result == {}
 
 
 def test_load_unknown_files_warn(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -87,10 +85,8 @@ def test_load_unknown_files_warn(tmp_path: Path, capsys: pytest.CaptureFixture) 
     (tmp_path / "brief.txt").write_text("wrong ext\n", encoding="utf-8")
     result = load_from_spec_dir(tmp_path)
     captured = capsys.readouterr()
-    assert "Unknown files" in captured.err
-    assert "readme.txt" in captured.err
-    assert "brief.txt" in captured.err
-    assert result == {"brief": None, "plan": None, "notes": None}
+    assert "no recognized artifact" in captured.err
+    assert result == {}
 
 
 def test_load_missing_dir_raises(tmp_path: Path) -> None:
@@ -114,3 +110,15 @@ def test_load_non_utf8_raises(tmp_path: Path) -> None:
         load_from_spec_dir(tmp_path)
     assert "UTF-8" in str(exc_info.value)
     assert "brief.md" in str(exc_info.value)
+
+
+def test_load_report_queries_and_source_objects(tmp_path: Path) -> None:
+    (tmp_path / "report.md").write_text("r\n", encoding="utf-8")
+    (tmp_path / "queries.sql").write_text("q\n", encoding="utf-8")
+    (tmp_path / "source-objects.md").write_text("s\n", encoding="utf-8")
+
+    assert load_from_spec_dir(tmp_path) == {
+        "report": "r\n",
+        "queries": "q\n",
+        "source_objects": "s\n",
+    }

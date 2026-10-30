@@ -1,72 +1,46 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import tempfile
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 
 def read_text(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def read_text_optional(path: Path) -> str | None:
-    """Return file contents or None if the file does not exist."""
-    if not path.exists():
-        return None
-    return path.read_text(encoding="utf-8")
-
-
 def write_text(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-    closed = False
+    """Replace a file atomically. A symlink keeps pointing at its target."""
+    target = path.resolve() if path.is_symlink() else path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(dir=target.parent, suffix=".tmp")
+    tmp = Path(name)
+    # mkstemp creates 0600. Keep an existing file's mode, else use a normal one.
+    tmp.chmod(target.stat().st_mode if target.exists() else 0o644)
     try:
-        os.write(fd, content.encode("utf-8"))
-        os.close(fd)
-        closed = True
-        os.replace(tmp, path)
-    except Exception:
-        if not closed:
-            os.close(fd)
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        tmp.replace(target)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+def write_documents(documents: dict[Path, str]) -> None:
+    """Write files in order. If one write fails, restore those already written."""
+    written: list[tuple[Path, str | None]] = []
+    try:
+        for path, content in documents.items():
+            previous = read_text(path) if path.exists() else None
+            write_text(path, content)
+            written.append((path, previous))
+    except OSError:
+        for path, previous in reversed(written):
+            if previous is None:
+                path.unlink(missing_ok=True)
+            else:
+                write_text(path, previous)
         raise
-
-
-def load_json(path: Path) -> Any:
-    with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def load_json_optional(path: Path) -> Any | None:
-    """Return parsed JSON or None if the file does not exist."""
-    if not path.exists():
-        return None
-    with path.open(encoding="utf-8") as handle:
-        return json.load(handle)
-
-
-def load_json_object_or_empty(path: Path) -> dict[str, Any]:
-    """Return a JSON object or `{}` when the file is missing, invalid, or another type."""
-    try:
-        payload = load_json(path)
-    except (json.JSONDecodeError, OSError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def write_json(path: Path, payload: Any) -> None:
-    write_text(path, json.dumps(payload, indent=2) + "\n")
-
-
-def now_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def extract_section(

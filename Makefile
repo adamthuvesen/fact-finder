@@ -1,9 +1,9 @@
 RUN := uv run --locked
 
-.PHONY: check audit lock lint types deps dead test workflows secrets vulnerabilities
+.PHONY: check audit lock lint types deps dead boundaries rules test workflows secrets vulnerabilities
 
 # Offline gate. CI runs the same targets.
-check: lock lint types deps dead test
+check: lock lint types deps dead boundaries rules test
 
 # Needs the network for the vulnerability database.
 audit: workflows secrets vulnerabilities
@@ -16,7 +16,7 @@ lint:
 	$(RUN) ruff format --check .
 
 types:
-	$(RUN) basedpyright --level error
+	$(RUN) basedpyright
 
 deps:
 	$(RUN) deptry .
@@ -24,8 +24,14 @@ deps:
 dead:
 	$(RUN) vulture
 
+boundaries:
+	$(RUN) lint-imports
+
+rules:
+	$(RUN) ast-grep scan --error
+
 test:
-	$(RUN) pytest --quiet --cov --cov-fail-under=88
+	$(RUN) pytest --quiet --cov --cov-fail-under=96
 
 workflows:
 	$(RUN) zizmor --offline .github/workflows

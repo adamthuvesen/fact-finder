@@ -1,375 +1,222 @@
-"""Enable/disable opt-in source bundles from ``examples/sources/<name>/``.
+"""Enable and disable opt-in source bundles.
 
-A bundle is wired by merging its registry spec into ``config/sources.json`` (the
-gitignored user sources file) and its MCP server block into the three MCP configs
-(``.mcp.json``, ``.cursor/mcp.json``, ``.codex/config.toml``), creating the
-per-tool files if absent. This automates the manual copy-paste documented in
-``examples/sources/README.md``.
+A bundle is a directory holding `source.json`, `SETUP.md`, and for an MCP server
+`mcp.snippet.json`. Bundles ship inside this package. A repo can add its own under
+`examples/sources/`, and a repo bundle wins over a packaged one of the same name.
 
-These edits are a local opt-in: ``.mcp.json`` is tracked by git, so enabling a
-bundle dirties it in your working tree; ``.cursor/mcp.json`` and
-``.codex/config.toml`` are local-only. Do not commit enabled configs back to the
-shared repo, which keeps its committed config neutral.
+`config/sources.json` is the source of truth. It records each enabled source and what
+the engine added to the client files. It is written first, and a failed write restores
+every file, so a failure leaves the previous consistent state.
+
+`.mcp.json` is tracked in this repo, so enabling a bundle dirties it. Do not commit
+enabled configs back here: this repo ships neutral.
 """
 
 from __future__ import annotations
 
-import json
-import re
+from dataclasses import dataclass
 from pathlib import Path
 
-from .sources import _validate_source_spec
+from pydantic import ValidationError
 
-_BUNDLES_SUBDIR = ("examples", "sources")
-_USER_SOURCES = ("config", "sources.json")
-_CLAUDE_CFG = (".mcp.json",)
-_CURSOR_CFG = (".cursor", "mcp.json")
-_CODEX_CFG = (".codex", "config.toml")
-_MCP_JSON_CONFIGS = (
-    (_CLAUDE_CFG, ".mcp.json", "claude"),
-    (_CURSOR_CFG, ".cursor/mcp.json", "cursor"),
+from .client_configs import ClientConfigs
+from .io import read_text, write_documents
+from .sources import (
+    NAME_PATTERN,
+    ServerDefinition,
+    SourceConfigError,
+    SourcesFile,
+    SourceSpec,
+    load_sources_file,
+    parse_sources_file,
+    render_sources_file,
+    user_sources_path,
 )
 
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+PACKAGED_BUNDLES = Path(__file__).parent / "bundles"
+REPO_BUNDLES = ("examples", "sources")
 
 
-class BundleError(ValueError):
-    """Raised for an unknown bundle name or malformed bundle files."""
+@dataclass(frozen=True)
+class Bundle:
+    name: str
+    path: Path
+    spec: SourceSpec
+    server: ServerDefinition | None
 
 
-def _bundles_dir(repo_root: Path) -> Path:
-    return repo_root.joinpath(*_BUNDLES_SUBDIR)
+def _bundle_roots(repo_root: Path) -> list[Path]:
+    return [repo_root.joinpath(*REPO_BUNDLES), PACKAGED_BUNDLES]
 
 
 def available_bundles(repo_root: Path) -> list[str]:
-    bundles = _bundles_dir(repo_root)
-    if not bundles.is_dir():
-        return []
     return sorted(
-        entry.name
-        for entry in bundles.iterdir()
-        if entry.is_dir() and (entry / "source.json").is_file()
+        {
+            entry.parent.name
+            for root in _bundle_roots(repo_root)
+            for entry in root.glob("*/source.json")
+        }
     )
 
 
 def _bundle_path(repo_root: Path, name: str) -> Path:
-    if not _NAME_RE.match(name):
-        raise BundleError(
+    if not NAME_PATTERN.match(name):
+        raise SourceConfigError(
             f"Invalid bundle name {name!r}; use lowercase letters, digits, '-' or '_'."
         )
-    bundles = _bundles_dir(repo_root).resolve()
-    path = (bundles / name).resolve()
-    if path.parent != bundles:  # reject path traversal
-        raise BundleError(f"Invalid bundle name {name!r}.")
-    if not (path / "source.json").is_file():
-        available = ", ".join(available_bundles(repo_root)) or "(none)"
-        raise BundleError(
-            f"No bundle {name!r} in examples/sources/. Available: {available}"
-        )
-    return path
+    for root in _bundle_roots(repo_root):
+        if (root / name / "source.json").is_file():
+            return root / name
+    available = ", ".join(available_bundles(repo_root)) or "(none)"
+    raise SourceConfigError(f"No bundle {name!r}. Available: {available}")
 
 
-def _load_bundle(repo_root: Path, name: str) -> tuple[str, dict, dict | None]:
-    """Return ``(source_name, spec, snippet)``; validates the spec.
-
-    ``snippet`` is ``None`` for an MCP-less bundle — a ``cli`` or ``native`` source
-    (e.g. GSC's ``research gsc`` subcommand) that reaches its system without an MCP
-    server and so ships only ``source.json`` and ``SETUP.md``.
-    """
+def load_bundle(repo_root: Path, name: str) -> Bundle:
     path = _bundle_path(repo_root, name)
-    payload = json.loads((path / "source.json").read_text(encoding="utf-8"))
-    sources = payload.get("sources", payload) if isinstance(payload, dict) else None
-    if not isinstance(sources, dict) or len(sources) != 1:
-        raise BundleError(f"{name}/source.json must define exactly one source.")
-    source_name, spec = next(iter(sources.items()))
-    _validate_source_spec(source_name, spec)
-    snippet_path = path / "mcp.snippet.json"
-    if not snippet_path.is_file():
-        return source_name, spec, None
-    snippet = json.loads(snippet_path.read_text(encoding="utf-8"))
-    for key in ("server_name", "claude", "cursor", "codex_toml"):
-        if key not in snippet:
-            raise BundleError(f"{name}/mcp.snippet.json is missing {key!r}.")
-    return source_name, spec, snippet
-
-
-def _read_json(path: Path, default: dict) -> dict:
-    if not path.exists():
-        return json.loads(json.dumps(default))
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
-        raise BundleError(f"{path} is not a JSON object.")
-    return data
-
-
-def _write_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-
-def _user_sources_doc(repo_root: Path) -> tuple[Path, dict]:
-    path = repo_root.joinpath(*_USER_SOURCES)
-    if not path.exists():
-        return path, {"sources": {}}
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if isinstance(payload, dict) and isinstance(payload.get("sources"), dict):
-        return path, payload
-    if isinstance(payload, dict):
-        return path, {"sources": payload}
-    raise BundleError(f"{path} must be a JSON object.")
-
-
-def enabled_source_names(repo_root: Path) -> set[str]:
-    path = repo_root.joinpath(*_USER_SOURCES)
-    if not path.exists():
-        return set()
-    _, doc = _user_sources_doc(repo_root)
-    return set(doc["sources"])
-
-
-def list_bundles(repo_root: Path) -> list[dict]:
-    enabled = enabled_source_names(repo_root)
-    rows: list[dict] = []
-    for name in available_bundles(repo_root):
-        source_name, spec, _ = _load_bundle(repo_root, name)
-        rows.append(
-            {
-                "name": name,
-                "enabled": source_name in enabled,
-                "transport": spec["transport"],
-                "read_only_mechanism": spec["read_only_mechanism"],
-            }
+    sources = parse_sources_file(read_text(path / "source.json"), f"{name}/source.json")
+    if list(sources) != [name]:
+        raise SourceConfigError(
+            f"{name}/source.json must define exactly the source {name!r}."
         )
-    return rows
+    server = None
+    server_path = path / "mcp.snippet.json"
+    if server_path.is_file():
+        try:
+            server = ServerDefinition.model_validate_json(read_text(server_path))
+        except ValidationError as exc:
+            raise SourceConfigError(
+                f"{name}/mcp.snippet.json is invalid: {exc.errors()[0]['msg']}"
+            ) from exc
+    return Bundle(name=name, path=path, spec=sources[name], server=server)
 
 
-def render_bundle_list(repo_root: Path) -> str:
-    rows = list_bundles(repo_root)
-    if not rows:
-        return "No source bundles found under examples/sources/."
-    width = max(len(row["name"]) for row in rows)
-    lines = ["Source bundles (* = enabled):", ""]
-    for row in rows:
-        mark = "*" if row["enabled"] else " "
-        lines.append(
-            f"  {mark} {row['name']:<{width}}  {row['transport']:<11}  "
-            f"{row['read_only_mechanism']}"
-        )
-    return "\n".join(lines)
+def _support_files(repo_root: Path, bundle: Bundle) -> dict[Path, str]:
+    """Return a server's support files for `config/`, keeping any local edit."""
+    documents: dict[Path, str] = {}
+    for file_name in bundle.server.support_files if bundle.server else []:
+        target = repo_root / "config" / file_name
+        if not target.exists():
+            documents[target] = read_text(bundle.path / file_name)
+    return documents
 
 
-def _codex_has_server(text: str, server: str) -> bool:
-    header = f"[mcp_servers.{server}]"
-    return any(line.strip() == header for line in text.splitlines())
+def _sources_document(repo_root: Path, document: SourcesFile) -> dict[Path, str]:
+    """Return the source of truth when it changed. No sources needs no file."""
+    path = user_sources_path(repo_root)
+    content = render_sources_file(document)
+    if path.exists() and read_text(path) == content:
+        return {}
+    return {path: content} if path.exists() or document.sources else {}
 
 
-def _codex_remove_server(text: str, server: str) -> tuple[str, bool]:
-    header = f"[mcp_servers.{server}]"
-    subtable_prefix = f"[mcp_servers.{server}."
-    lines = text.splitlines(keepends=True)
-    out: list[str] = []
-    index = 0
-    removed = False
-    while index < len(lines):
-        stripped = lines[index].strip()
-        # Remove the server's table and any dotted subtables (e.g. an
-        # `[mcp_servers.<server>.env]` block) so disabling leaves nothing behind.
-        if stripped == header or stripped.startswith(subtable_prefix):
-            removed = True
-            index += 1
-            while index < len(lines) and not lines[index].lstrip().startswith("["):
-                index += 1
-            while out and out[-1].strip() == "":  # drop a blank line left behind
-                out.pop()
-            if out and not out[-1].endswith("\n"):
-                out[-1] += "\n"
-            continue
-        out.append(lines[index])
-        index += 1
-    return "".join(out), removed
-
-
-def _mcp_json_targets(
-    repo_root: Path, snippet: dict
-) -> list[tuple[Path, str, dict, dict]]:
-    targets = []
-    for cfg, label, snippet_key in _MCP_JSON_CONFIGS:
-        path = repo_root.joinpath(*cfg)
-        data = _read_json(path, {"mcpServers": {}})
-        targets.append((path, label, data, snippet[snippet_key]))
-    return targets
-
-
-def _write_user_source(su_path: Path, doc: dict, source_name: str, spec: dict) -> str:
-    existed = source_name in doc["sources"]
-    doc["sources"][source_name] = spec
-    _write_json(su_path, doc)
-    return (
-        f"{'updated' if existed else 'added'} source '{source_name}' "
-        "in config/sources.json"
-    )
-
-
-def _wire_mcp_json_targets(
-    targets: list[tuple[Path, str, dict, dict]], server: str
+def wire_clients(
+    repo_root: Path, document: SourcesFile, bundles: list[Bundle]
 ) -> list[str]:
-    actions: list[str] = []
-    for path, label, data, shapes in targets:
-        servers = data.setdefault("mcpServers", {})
-        had = server in servers
-        servers[server] = shapes[server]
-        _write_json(path, data)
-        actions.append(f"{'updated' if had else 'wired'} server '{server}' in {label}")
-    return actions
+    """Add `bundles` to every client and record it, or change nothing on any error.
 
-
-def ensure_codex_goals(text: str) -> str:
-    """Add the goals feature flag when the local Codex config lacks it.
-
-    Codex hides `/goal` behind this flag, and this file is generated locally
-    rather than committed, so nothing else would ever add it.
-
-    Where the flag goes matters. Prepending a bare `[features]` table would
-    declare the table twice when one already exists, which makes the whole file
-    unparseable, and would swallow any root-level keys that follow it into the
-    new table. So: extend an existing `[features]` table in place, and otherwise
-    append a fresh one at the end, past every root-level key.
+    The returned actions name real changes only, so a no-op reports nothing.
     """
-    if any(line.strip() == "goals = true" for line in text.splitlines()):
-        return text
-
-    lines = text.splitlines(keepends=True)
-    header = next(
-        (i for i, line in enumerate(lines) if line.strip() == "[features]"), None
-    )
-    if header is not None:
-        if lines and not lines[-1].endswith("\n"):
-            lines[-1] += "\n"
-        return "".join(lines[: header + 1] + ["goals = true\n"] + lines[header + 1 :])
-
-    if not text.strip():
-        return "[features]\ngoals = true\n"
-    return text.rstrip("\n") + "\n\n[features]\ngoals = true\n"
-
-
-def _wire_codex(
-    cx_path: Path, cx_text: str, *, server: str | None, codex_toml: str | None
-) -> list[str]:
-    """Ensure the goals flag, and wire the server when the bundle has one.
-
-    Both edits go through one write. The goals flag is applied on every enable,
-    including for an MCP-less bundle and for a server that is already wired —
-    otherwise a user whose first bundle hits either path never gets `/goal`.
-    """
+    clients = ClientConfigs.read(repo_root)
     actions: list[str] = []
-    updated = ensure_codex_goals(cx_text)
-    if updated != cx_text:
+    if clients.goals_state() == "unset":
+        clients.enable_codex_goals()
         actions.append("enabled native goals in .codex/config.toml")
-
-    if server is not None and _codex_has_server(updated, server):
-        actions.append(f"server '{server}' already in .codex/config.toml (left as-is)")
-    elif server is not None:
-        if updated and not updated.endswith("\n"):
-            updated += "\n"
-        updated += "\n" + codex_toml.rstrip("\n") + "\n"
-        actions.append(f"wired server '{server}' in .codex/config.toml")
-
-    if updated != cx_text:
-        cx_path.parent.mkdir(parents=True, exist_ok=True)
-        cx_path.write_text(updated, encoding="utf-8")
-    return actions
-
-
-def _remove_user_source(repo_root: Path, source_name: str) -> list[str]:
-    su_path = repo_root.joinpath(*_USER_SOURCES)
-    if not su_path.exists():
-        return []
-    _, doc = _user_sources_doc(repo_root)
-    if source_name not in doc["sources"]:
-        return []
-    del doc["sources"][source_name]
-    _write_json(su_path, doc)
-    return [f"removed source '{source_name}' from config/sources.json"]
-
-
-def _remove_mcp_json_servers(repo_root: Path, server: str) -> list[str]:
-    actions: list[str] = []
-    for cfg, label, _ in _MCP_JSON_CONFIGS:
-        path = repo_root.joinpath(*cfg)
-        if not path.exists():
+    support: dict[Path, str] = {}
+    for bundle in bundles:
+        support |= _support_files(repo_root, bundle)
+        if bundle.server is None:
             continue
-        data = _read_json(path, {"mcpServers": {}})
-        if server in data.get("mcpServers", {}):
-            del data["mcpServers"][server]
-            _write_json(path, data)
-            actions.append(f"removed server '{server}' from {label}")
-    return actions
-
-
-def _remove_codex_server(repo_root: Path, server: str) -> list[str]:
-    cx_path = repo_root.joinpath(*_CODEX_CFG)
-    if not cx_path.exists():
-        return []
-    new_text, removed = _codex_remove_server(
-        cx_path.read_text(encoding="utf-8"), server
+        name = bundle.server.server_name
+        result = clients.wire(bundle.server, document.wiring.get(bundle.name))
+        document.wiring[bundle.name] = result.wiring
+        if result.added_files:
+            actions.append(f"wired server '{name}' in {', '.join(result.added_files)}")
+        if result.denied:
+            actions.append(
+                f"denied {len(bundle.server.write_tools)} write tools of '{name}'"
+            )
+    actions.extend(f"copied {path.name} to config/" for path in support)
+    write_documents(
+        {
+            **_sources_document(repo_root, document),
+            **clients.documents(),
+            **support,
+        }
     )
-    if not removed:
-        return []
-    cx_path.write_text(new_text, encoding="utf-8")
-    return [f"removed server '{server}' from .codex/config.toml"]
+    return actions
 
 
 def enable_bundle(repo_root: Path, name: str) -> list[str]:
-    """Wire a bundle into the user sources file and the three MCP configs.
-
-    Every target file is read and parsed before any write, so a malformed config
-    aborts cleanly (BundleError) instead of leaving the repo half-wired.
-    """
-    source_name, spec, snippet = _load_bundle(repo_root, name)
-
-    # Parse every target up front; a malformed file raises here, before any write.
-    # An MCP-less bundle (snippet is None) only registers the source spec — there
-    # is no server to wire into the three MCP configs.
-    su_path, doc = _user_sources_doc(repo_root)
-    server = snippet["server_name"] if snippet is not None else None
-    cx_path = repo_root.joinpath(*_CODEX_CFG)
-    cx_text = cx_path.read_text(encoding="utf-8") if cx_path.exists() else ""
-    json_targets = []
-    if snippet is not None:
-        json_targets = _mcp_json_targets(repo_root, snippet)
-
-    # All targets parsed cleanly; now write.
-    actions: list[str] = []
-    actions.append(_write_user_source(su_path, doc, source_name, spec))
-
-    if snippet is not None:
-        actions.extend(_wire_mcp_json_targets(json_targets, server))
-    actions.extend(
-        _wire_codex(
-            cx_path,
-            cx_text,
-            server=server,
-            codex_toml=snippet["codex_toml"] if snippet is not None else None,
-        )
-    )
-
-    actions.append(
-        f"next: follow examples/sources/{name}/SETUP.md for credentials and read-only setup"
-    )
-    return actions
+    bundle = load_bundle(repo_root, name)
+    document = load_sources_file(repo_root)
+    previous = document.sources.get(name)
+    document.sources[name] = bundle.spec
+    actions = wire_clients(repo_root, document, [bundle])
+    if previous != bundle.spec:
+        verb = "updated" if previous else "added"
+        actions.insert(0, f"{verb} source '{name}' in config/sources.json")
+    return [
+        *actions,
+        f"next: follow {bundle.path / 'SETUP.md'} for credentials and read-only setup",
+    ]
 
 
 def disable_bundle(repo_root: Path, name: str) -> list[str]:
-    """Remove a bundle's wiring from the user sources file and MCP configs."""
-    source_name, _, snippet = _load_bundle(repo_root, name)
-    server = snippet["server_name"] if snippet is not None else None
-    actions = _remove_user_source(repo_root, source_name)
-
-    # An MCP-less bundle wired no server, so there is nothing to unwire.
-    if server is not None:
-        actions.extend(_remove_mcp_json_servers(repo_root, server))
-        actions.extend(_remove_codex_server(repo_root, server))
-
-    if not actions:
-        actions.append(f"'{name}' was not enabled; nothing to do")
+    """Remove only what enable added. A server enable never added stays in place."""
+    document = load_sources_file(repo_root)
+    if name not in document.sources:
+        return []
+    del document.sources[name]
+    wiring = document.wiring.pop(name, None)
+    clients = ClientConfigs.read(repo_root)
+    if wiring is not None:
+        clients.unwire(wiring)
+    write_documents(
+        {
+            user_sources_path(repo_root): render_sources_file(document),
+            **clients.documents(),
+        }
+    )
+    actions = [f"removed source '{name}' from config/sources.json"]
+    if wiring is not None:
+        actions.append(f"removed server '{wiring.server_name}' from all client configs")
     return actions
+
+
+def enabled_bundles(repo_root: Path) -> tuple[list[Bundle], list[str]]:
+    """Return the bundles behind enabled sources, and enabled sources with no bundle."""
+    known = set(available_bundles(repo_root))
+    names = sorted(load_sources_file(repo_root).sources)
+    return (
+        [load_bundle(repo_root, name) for name in names if name in known],
+        [name for name in names if name not in known],
+    )
+
+
+def sql_backed_families(repo_root: Path) -> set[str]:
+    """Return every known source whose spec says it answers through SQL."""
+    specs = {
+        **{
+            name: load_bundle(repo_root, name).spec
+            for name in available_bundles(repo_root)
+        },
+        **load_sources_file(repo_root).sources,
+    }
+    return {name for name, spec in specs.items() if spec.sql_backed}
+
+
+def render_bundle_list(repo_root: Path) -> str:
+    names = available_bundles(repo_root)
+    if not names:
+        return "No source bundles found."
+    enabled = load_sources_file(repo_root).sources
+    width = max(len(name) for name in names)
+    lines = ["Source bundles (* = enabled):", ""]
+    for name in names:
+        spec = load_bundle(repo_root, name).spec
+        mark = "*" if name in enabled else " "
+        lines.append(
+            f"  {mark} {name:<{width}}  {spec.transport:<11}  "
+            f"{spec.read_only_control.mechanism}: {spec.read_only_control.detail}"
+        )
+    return "\n".join(lines)

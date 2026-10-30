@@ -1,0 +1,12 @@
+{
+  "server_name": "azure-devops",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@azure-devops/mcp",
+    "YOUR_ADO_ORG"
+  ],
+  "placeholders": [
+    "YOUR_ADO_ORG"
+  ]
+}

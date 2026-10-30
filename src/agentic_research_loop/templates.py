@@ -1,8 +1,20 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
+
+from .layout import local_today
+
+# A scaffolded section carries this token until someone replaces it. Validation
+# looks for the token, not for template wording, so real prose cannot trip it.
+PLACEHOLDER = "<!-- research:placeholder -->"
+NO_SOURCE_FAMILIES = "none"
+# Tolerates the bold variants a hand-written brief uses, such as `- **Research shape:**`.
+RESEARCH_SHAPE = re.compile(
+    r"(?im)^[ \t]*-[ \t]*\*{0,2}Research shape\*{0,2}:\*{0,2}[ \t]*`?([A-Za-z-]+)`?"
+)
 
 
 def format_list(items: Iterable[str]) -> str:
@@ -49,10 +61,11 @@ def brief_template(
     question: str,
     template: str,
     source_constraints: list[str],
+    allowed_families: list[str],
     success_criteria: list[str],
     today: date | None = None,
 ) -> str:
-    today_text = (today or date.today()).isoformat()
+    today_text = (today or local_today()).isoformat()
     root_cause_sections = (
         f"""## Hypotheses
 
@@ -93,6 +106,10 @@ def brief_template(
 {format_list(source_constraints)}
 
 All external systems are read-only. Do not send messages, change experiments, update documents, or write to data stores.
+
+## Allowed Source Families
+
+{", ".join(allowed_families) or NO_SOURCE_FAMILIES}
 
 ## Definitions And Reconciliation
 
@@ -171,13 +188,6 @@ Use this as a lightweight ledger, not a form to fill perfectly.
 - **Evidence so far:**
 - **Next check:**
 
-## Evidence Log
-
-- Claim:
-  - Source:
-  - Supports:
-  - Caveat or freshness limit:
-
 ## Dead Ends
 
 - None yet.
@@ -185,14 +195,6 @@ Use this as a lightweight ledger, not a form to fill perfectly.
 ## Open Questions
 
 - None yet.
-
-## Final Challenge
-
-- Independent reviewer: <subagent name or task identifier>
-- Strongest competing explanation:
-- Weakest-supported material claim:
-- Most fragile source or calculation:
-- Resolution: open | resolved
 """
 
 
@@ -210,39 +212,43 @@ def report_template(template: str, question: str) -> str:
 
 ## Executive Summary
 
-Complete this section with the answer and the most decision-relevant evidence.
+{PLACEHOLDER} Complete this section with the answer and the most decision-relevant evidence.
 
 ## {middle_heading}
 
 
 ## Evidence
 
+{PLACEHOLDER} Cite each material claim with its marker from `evidence.json`.
 
 ## Reconciliation
 
-Show how calculated contributions reconcile to the source total. If reconciliation does not apply, explain why.
+{PLACEHOLDER} Show how calculated contributions reconcile to the source total. If reconciliation does not apply, explain why.
 
 ## Rejected Leads
 
+{PLACEHOLDER}
 
 ## Risks And Caveats
 
-
+{PLACEHOLDER}
 """
 
 
 def queries_template() -> str:
     return """-- Preserve every SQL query used as evidence below.
+-- Put `-- query_id: <id>` above a query that an evidence.json source cites.
 -- If no SQL is used, replace this file with: -- No SQL used: <reason>
 """
 
 
 def source_objects_template() -> str:
-    return """# Source Objects
+    return f"""# Source Objects
 
-List every source object used, including its fully qualified name or stable URL and the access date.
+List one bullet per source object: its fully qualified name or stable URL, in backticks, then the access date.
 
-- Replace this line with a source object.
+{PLACEHOLDER}
+- `<object name or URL>` (accessed YYYY-MM-DD)
 """
 
 
@@ -263,15 +269,19 @@ This case may use only these sources:
 
 {constraints}
 
+Run `uv run research contract method` and `uv run research contract evidence`, then follow both.
+
 Maintain these artifacts as you work:
-- `notes.md` for hypotheses, evidence, dead ends, open questions, and the final challenge
-- `report.md` for the usable answer, evidence, reconciliation, rejected leads, and caveats
+- `notes.md` for hypotheses, dead ends, and open questions
+- `report.md` for the usable answer, reconciliation, rejected leads, and caveats, with a marker such as [C1] beside each material claim
 - `queries.sql` for every SQL query used, or an explicit reason no SQL was used
-- `source-objects.md` for every source object used, with fully qualified names or stable URLs
+- `source-objects.md` for every source object used, with fully qualified names or stable URLs and access dates
+- `evidence.json` for sources, source coverage, material claims, and checked calculations (`uv run research schema evidence` prints the schema)
+- preserved source excerpts or aggregate results inside the case, which `evidence.json` lists by SHA-256
 - `plan.md` only when a separate plan materially helps the investigation
 
-Continue until the report answers the question and every material claim is evidence-backed. Reconcile calculated contributions to the relevant source total when applicable.
+Every claim cites a declared source. A source with a `query_id` needs a `-- query_id: <id>` comment directly above its statement in `queries.sql`. Every source locator appears in `source-objects.md`. Reconcile calculated contributions to the relevant source total when applicable. Do not count shared upstream data as independent corroboration. Continue until the report answers the question and every material claim is evidence-backed.
 
-Before finishing, delegate the final challenge to an independent subagent that did not conduct the research. Give the subagent the completed case artifacts and ask it to review them without editing. It must identify the strongest competing explanation, the weakest-supported material claim, the most fragile source or calculation, and any material objection to completion. Do not replace the independent review with your own assessment. Record the subagent name or task identifier and its findings under `## Final Challenge` in `notes.md`. Resolve material objections with more evidence or revised conclusions, or disclose their effect on the answer. If you materially revise the answer, ask the subagent to review the final artifacts again before validation.
+Before finishing, delegate the final challenge to an independent subagent that did not conduct the research. Give it the final artifacts and preserved evidence for read-only review. It must identify the strongest competing explanation, the weakest-supported material claim, the most fragile source or calculation, and any material objection. Do not replace the independent review with your own assessment. Record its name or task id and its findings in `review.json` (`uv run research schema review`), using `uv run research review-snapshot "{case_path}"` for `reviewed_hashes`. A snapshot only prints hashes and approves nothing. If reviewed content changes, obtain another review before updating the hashes.
 
-Run `uv run research validate "{case_path}" --strict`, fix every failure, and surface the validation result and final conclusion in your last response. Stop early only if a concrete external dependency makes the case impossible to complete, and record that blocker in `notes.md` and `report.md`."""
+Run `uv run research validate "{case_path}" --strict`, fix every failure, and surface the validation result and final conclusion in your last response. Strict validation checks integrity and arithmetic. It cannot prove semantic truth or reviewer independence. Stop early only if a concrete external dependency makes the case impossible to complete, and record that blocker in `notes.md` and `report.md`."""

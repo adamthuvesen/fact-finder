@@ -48,8 +48,8 @@ failure surface a second execution system buys you, which is the actual argument
 - Every path in the generated contract is absolute. `templates.goal_prompt` and
   `research.resolve_case_path` both enforce that boundary, because misdirected
   writes are the failure mode this design is most exposed to.
-- The challenge cycle becomes a delegated independent subagent, verified by
-  parsing `## Final Challenge` in `notes.md` rather than by machine state.
+- The challenge cycle becomes a delegated independent subagent. It records its
+  findings in `review.json`, bound by hash to the artifacts it reviewed.
 - **Unattended execution is gone.** `research run` could be scripted or
   scheduled; `/goal` needs a live client session. No current workflow depends on
   it. If one appears, the answer is a thin Agent SDK entry point kept separate

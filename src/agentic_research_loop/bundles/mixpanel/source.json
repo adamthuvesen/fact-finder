@@ -1,0 +1,15 @@
+{
+  "sources": {
+    "mixpanel": {
+      "display_name": "Mixpanel",
+      "category": "product-analytics",
+      "transport": "http-oauth",
+      "read_only_control": {
+        "mechanism": "credential",
+        "detail": "Consumer role"
+      },
+      "plan_line": "Mixpanel for product analytics — funnels, retention, flows, segmentation, and JQL queries.",
+      "notes": "Query events, funnels, flows, retention, segmentation/insights, boards, and run JQL-like queries via the official Mixpanel MCP server. Use only Get/List/Run-Query/Search tools. WARNING: the server also exposes destructive tools (Delete-Dashboard, Bulk-Edit-Properties, taxonomy edits) — never create, edit, or delete anything; read-only depends on a Consumer-role account (see SETUP.md). Strong for funnel and retention root-cause."
+    }
+  }
+}

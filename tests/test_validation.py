@@ -1,105 +1,31 @@
 from __future__ import annotations
 
+import json
 import textwrap
 from pathlib import Path
 
 import pytest
+from support.cases import (
+    BRIEF,
+    QUESTION,
+    REPORT,
+    SOURCE_OBJECTS,
+    fill_case,
+    write_review,
+)
 
-from agentic_research_loop.validation import validate_case
-
-COMPLETE_REPORT = """\
-# Research Report
-
-## Question
-
-Why did weekly export failures rise in June 2026?
-
-## Executive Summary
-
-Weekly export failures rose from 2.1% to 6.4% in June, concentrated in the
-large-workspace cohort after the June 3 scheduler change.
-
-## Ranked Causes
-
-1. The June 3 scheduler change.
-
-## Evidence
-
-Failure rate by week, from the weekly export.
-
-## Reconciliation
-
-Cohort failures sum to 412, matching the 412 total in the export.
-
-## Rejected Leads
-
-Storage quota: flat across the whole window.
-
-## Risks And Caveats
-
-A single static export; no live system cross-check was possible.
-"""
-
-COMPLETE_NOTES = """\
-# Research Notes
-
-## Evidence Log
-
-- Claim: The failure rate reached 6.4% in June.
-  - Source: exports_weekly.csv
-  - Supports: H1
-  - Caveat or freshness limit: Static export.
-
-## Final Challenge
-
-- Independent reviewer: {reviewer}
-- Strongest competing explanation: A seasonal volume spike.
-- Weakest-supported material claim: The June 3 attribution.
-- Most fragile source or calculation: The single CSV export.
-- Resolution: {resolution}
-"""
-
-BRIEF = """\
-# Research Brief
-
-## Question
-
-Why did weekly export failures rise in June 2026?
-
-## Scope
-
-- Research shape: `exploration`
-
-## Source Constraints
-
-- Local context folder: /tmp/exports
-"""
+from agentic_research_loop.templates import (
+    PLACEHOLDER,
+    notes_template,
+    queries_template,
+    report_template,
+    source_objects_template,
+)
+from agentic_research_loop.validation import parse_source_objects, validate_case
 
 
-def build_case(
-    tmp_path: Path,
-    *,
-    reviewer: str = "independent-subagent-challenger",
-    resolution: str = "resolved after re-checking the change log",
-    queries: str = "-- No SQL used: the case reads a CSV export directly.\n",
-    brief: str = BRIEF,
-    report: str = COMPLETE_REPORT,
-) -> Path:
-    case = tmp_path / "2026-08-17-exports"
-    case.mkdir()
-    (case / "brief.md").write_text(brief, encoding="utf-8")
-    (case / "notes.md").write_text(
-        COMPLETE_NOTES.format(reviewer=reviewer, resolution=resolution),
-        encoding="utf-8",
-    )
-    (case / "report.md").write_text(report, encoding="utf-8")
-    (case / "queries.sql").write_text(queries, encoding="utf-8")
-    (case / "source-objects.md").write_text(
-        "# Source Objects\n\n"
-        "- examples/local-sources/exports_weekly.csv (accessed 2026-08-17)\n",
-        encoding="utf-8",
-    )
-    return case
+def build_case(tmp_path: Path, **artifacts: str) -> Path:
+    return fill_case(tmp_path / "2026-08-17-exports", **artifacts)
 
 
 def test_complete_case_passes_strict(tmp_path: Path) -> None:
@@ -113,72 +39,12 @@ def test_missing_artifact_is_reported(tmp_path: Path) -> None:
     assert "Missing required file: source-objects.md" in validate_case(case)
 
 
-# --- The independent challenge -------------------------------------------------
-#
-# The challenge is the one check an agent can fake by writing a plausible
-# paragraph, so the reviewer field is where the strictness has to live.
+def test_notes_carry_no_gate(tmp_path: Path) -> None:
+    """review.json owns the challenge and evidence.json owns the evidence."""
+    case = build_case(tmp_path)
+    (case / "notes.md").write_text("# Notes\n", encoding="utf-8")
 
-
-@pytest.mark.parametrize(
-    "reviewer",
-    [
-        "independent-subagent-challenger",
-        "independent subagent reviewer 7",
-        "Task(reviewer-a4f21)",
-    ],
-)
-def test_strict_accepts_a_named_reviewer(tmp_path: Path, reviewer: str) -> None:
-    """A real identifier may contain placeholder words without being a placeholder."""
-    assert (
-        validate_case(build_case(tmp_path, reviewer=reviewer), strict_completion=True)
-        == []
-    )
-
-
-@pytest.mark.parametrize(
-    "reviewer",
-    [
-        "main agent",
-        "research agent",
-        "me",
-        "self",
-        "<subagent name or task identifier>",
-        "TBD",
-    ],
-)
-def test_strict_rejects_self_review_and_placeholders(
-    tmp_path: Path, reviewer: str
-) -> None:
-    errors = validate_case(
-        build_case(tmp_path, reviewer=reviewer), strict_completion=True
-    )
-
-    assert any("Final Challenge" in error for error in errors)
-
-
-def test_strict_rejects_a_bare_unresolved_challenge(tmp_path: Path) -> None:
-    errors = validate_case(
-        build_case(tmp_path, resolution="open"), strict_completion=True
-    )
-
-    assert any("Final Challenge" in error for error in errors)
-
-
-def test_strict_accepts_a_disclosed_unresolved_challenge(tmp_path: Path) -> None:
-    """Disclosing an objection you could not settle is allowed; hiding it is not."""
-    assert (
-        validate_case(
-            build_case(
-                tmp_path,
-                resolution="unresolved because no live system was reachable",
-            ),
-            strict_completion=True,
-        )
-        == []
-    )
-
-
-# --- Read-only SQL -------------------------------------------------------------
+    assert validate_case(case, strict_completion=True) == []
 
 
 def test_write_sql_is_rejected_without_strict(tmp_path: Path) -> None:
@@ -187,7 +53,7 @@ def test_write_sql_is_rejected_without_strict(tmp_path: Path) -> None:
         queries="SELECT week FROM exports;\nDELETE FROM exports WHERE week = 1;\n",
     )
 
-    assert any("forbidden write statement: DELETE" in e for e in validate_case(case))
+    assert any("not read-only" in error for error in validate_case(case))
 
 
 def test_write_keyword_inside_a_string_literal_is_allowed(tmp_path: Path) -> None:
@@ -198,7 +64,7 @@ def test_write_keyword_inside_a_string_literal_is_allowed(tmp_path: Path) -> Non
     assert validate_case(case, strict_completion=True) == []
 
 
-def test_use_is_allowed_because_the_shipped_allowlist_permits_it(
+def test_use_warehouse_is_allowed_because_the_shipped_allowlist_permits_it(
     tmp_path: Path,
 ) -> None:
     case = build_case(
@@ -216,39 +82,42 @@ def test_strict_requires_preserved_sql_or_a_stated_reason(tmp_path: Path) -> Non
     assert any("No SQL used" in error for error in errors)
 
 
-# --- Report and question -------------------------------------------------------
-
-
 def test_strict_rejects_a_placeholder_question(tmp_path: Path) -> None:
-    brief = BRIEF.replace(
-        "Why did weekly export failures rise in June 2026?",
-        "Research: exports",
-    )
+    case = build_case(tmp_path, brief=BRIEF.replace(QUESTION, "Research: exports"))
 
-    errors = validate_case(build_case(tmp_path, brief=brief), strict_completion=True)
+    errors = validate_case(case, strict_completion=True)
 
     assert any("specific research question" in error for error in errors)
 
 
 def test_strict_rejects_an_unwritten_report_section(tmp_path: Path) -> None:
-    report = COMPLETE_REPORT.replace(
-        "Cohort failures sum to 412, matching the 412 total in the export.",
-        "Show how calculated contributions reconcile to the source total. "
-        "If reconciliation does not apply, explain why.",
+    written = "Cohort failures sum to 412, matching the 412 total in the export."
+    case = build_case(
+        tmp_path, report=REPORT.replace(written, f"{PLACEHOLDER} Show it.")
     )
 
-    errors = validate_case(build_case(tmp_path, report=report), strict_completion=True)
+    errors = validate_case(case, strict_completion=True)
 
     assert any("Reconciliation" in error for error in errors)
 
 
-# --- Root-cause design contract ------------------------------------------------
+def test_real_text_containing_explain_why_passes(tmp_path: Path) -> None:
+    """The old check matched template wording, so this honest sentence failed."""
+    written = "Cohort failures sum to 412, matching the 412 total in the export."
+    case = build_case(
+        tmp_path,
+        report=REPORT.replace(
+            written, f"{written} The change log and cohorts explain why."
+        ),
+    )
+
+    assert validate_case(case, strict_completion=True) == []
 
 
 def test_root_cause_brief_needs_its_design_sections(tmp_path: Path) -> None:
-    brief = BRIEF.replace("`exploration`", "`root-cause`")
+    case = build_case(tmp_path, brief=BRIEF.replace("`exploration`", "`root-cause`"))
 
-    errors = validate_case(build_case(tmp_path, brief=brief))
+    errors = validate_case(case)
 
     assert any("Hypotheses" in error for error in errors)
     assert any("Known Confounders" in error for error in errors)
@@ -295,48 +164,7 @@ def test_committed_demo_case_passes_strict_validation() -> None:
     assert validate_case(demo, strict_completion=True) == []
 
 
-# --- Regressions -------------------------------------------------------------
-
-
-def test_blank_fields_do_not_absorb_the_next_line(tmp_path: Path) -> None:
-    """A `\\s*` gap after the colon would match the newline, so an empty field
-    would take the following bullet as its value and the whole unfilled
-    template would pass the completion gate."""
-    notes = """\
-# Research Notes
-
-## Evidence Log
-
-- Claim:
-  - Source:
-  - Supports:
-  - Caveat or freshness limit:
-
-## Final Challenge
-
-- Independent reviewer:
-- Strongest competing explanation: A seasonal volume spike.
-- Weakest-supported material claim: The attribution.
-- Most fragile source or calculation: The single export.
-- Resolution: resolved after re-checking
-"""
-    case = build_case(tmp_path)
-    (case / "notes.md").write_text(notes, encoding="utf-8")
-
-    errors = validate_case(case, strict_completion=True)
-
-    assert any("Evidence Log" in error for error in errors)
-    assert any("Final Challenge" in error for error in errors)
-
-
 def test_untouched_shipped_templates_fail_the_completion_gate(tmp_path: Path) -> None:
-    from agentic_research_loop.templates import (
-        notes_template,
-        queries_template,
-        report_template,
-        source_objects_template,
-    )
-
     case = build_case(tmp_path)
     (case / "notes.md").write_text(notes_template(), encoding="utf-8")
     (case / "report.md").write_text(
@@ -345,29 +173,32 @@ def test_untouched_shipped_templates_fail_the_completion_gate(tmp_path: Path) ->
     (case / "queries.sql").write_text(queries_template(), encoding="utf-8")
     (case / "source-objects.md").write_text(source_objects_template(), encoding="utf-8")
 
-    assert validate_case(case, strict_completion=True) != []
+    errors = validate_case(case, strict_completion=True)
+
+    assert any("Executive Summary" in error for error in errors)
+    assert any("source-objects.md" in error for error in errors)
+    assert any("No SQL used" in error for error in errors)
 
 
 def test_an_unreadable_research_shape_is_an_error_not_a_silent_skip(
     tmp_path: Path,
 ) -> None:
-    """Returning None here would skip the whole root-cause design contract while
-    validation still reported success."""
-    brief = BRIEF.replace(
-        "- Research shape: `exploration`", "- Research shape: `bogus`"
+    case = build_case(
+        tmp_path,
+        brief=BRIEF.replace(
+            "- Research shape: `exploration`", "- Research shape: `bogus`"
+        ),
     )
 
-    errors = validate_case(build_case(tmp_path, brief=brief))
-
-    assert any("unknown research shape" in error for error in errors)
+    assert any("unknown research shape" in error for error in validate_case(case))
 
 
 def test_missing_research_shape_is_reported(tmp_path: Path) -> None:
-    brief = BRIEF.replace("- Research shape: `exploration`\n", "")
+    case = build_case(
+        tmp_path, brief=BRIEF.replace("- Research shape: `exploration`\n", "")
+    )
 
-    errors = validate_case(build_case(tmp_path, brief=brief))
-
-    assert any("Research shape" in error for error in errors)
+    assert any("Research shape" in error for error in validate_case(case))
 
 
 @pytest.mark.parametrize(
@@ -382,18 +213,138 @@ def test_missing_research_shape_is_reported(tmp_path: Path) -> None:
 def test_research_shape_survives_bold_and_trailing_text(
     tmp_path: Path, shape_line: str
 ) -> None:
-    """A brief that annotates the shape line must still get the design contract."""
-    brief = BRIEF.replace("- Research shape: `exploration`", shape_line)
+    case = build_case(
+        tmp_path, brief=BRIEF.replace("- Research shape: `exploration`", shape_line)
+    )
 
-    errors = validate_case(build_case(tmp_path, brief=brief))
-
-    assert any("Hypotheses" in error for error in errors)
+    assert any("Hypotheses" in error for error in validate_case(case))
 
 
 def test_select_into_is_rejected(tmp_path: Path) -> None:
-    """`SELECT ... INTO` creates a table in Postgres and writes a file in MySQL."""
     case = build_case(
         tmp_path, queries="SELECT week INTO exports_snapshot FROM exports;\n"
     )
 
     assert any("INTO" in error for error in validate_case(case))
+
+
+def test_coverage_must_match_the_allowed_families(tmp_path: Path) -> None:
+    case = build_case(tmp_path, brief=BRIEF.replace("\nlocal\n", "\nlocal, slack\n"))
+
+    assert any(
+        "Allowed Source Families" in error
+        for error in validate_case(case, strict_completion=True)
+    )
+
+
+# --- source-objects.md is parsed as structure ------------------------------------
+
+
+def test_source_objects_parse_into_locator_and_date() -> None:
+    objects, errors = parse_source_objects(
+        "# Source Objects\n\n"
+        "Intro line.\n\n"
+        "- `db.schema.table` weekly counts, wrapped over\n"
+        "  two lines (accessed 2026-08-17)\n"
+        "- https://example.com/runbook (accessed 2026-08-18)\n"
+    )
+
+    assert errors == []
+    assert [item.locator for item in objects] == [
+        "db.schema.table",
+        "https://example.com/runbook",
+    ]
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "- some long prose about a table, with no locator and no date at all here",
+        "- `db.table` with no access date",
+        "- `db.table` (accessed 2026-13-99)",
+    ],
+)
+def test_malformed_source_object_fails(tmp_path: Path, entry: str) -> None:
+    case = build_case(tmp_path, source_objects=f"{SOURCE_OBJECTS}{entry}\n")
+    write_review(case)
+
+    assert any(
+        "source-objects.md" in error
+        for error in validate_case(case, strict_completion=True)
+    )
+
+
+def test_evidence_locator_must_be_listed_in_source_objects(tmp_path: Path) -> None:
+    case = build_case(
+        tmp_path,
+        source_objects="# Source Objects\n\n- `other.table` (accessed 2026-08-17)\n",
+    )
+
+    assert any(
+        "is not listed in source-objects.md" in error
+        for error in validate_case(case, strict_completion=True)
+    )
+
+
+# --- SQL-backed families need a preserved query --------------------------------
+
+
+def _with_family(case: Path, family: str, status: str = "used") -> None:
+    brief = (case / "brief.md").read_text(encoding="utf-8")
+    (case / "brief.md").write_text(
+        brief.replace("\nlocal\n", f"\n{family}\n"), encoding="utf-8"
+    )
+    document = json.loads((case / "evidence.json").read_text(encoding="utf-8"))
+    document["coverage"][0]["family"] = family
+    document["coverage"][0]["status"] = status
+    document["sources"][0]["family"] = family
+    (case / "evidence.json").write_text(json.dumps(document), encoding="utf-8")
+    write_review(case)
+
+
+@pytest.mark.parametrize(
+    "family", ["snowflake", "bigquery", "postgres", "duckdb", "redshift"]
+)
+def test_sql_backed_family_used_needs_a_preserved_query(
+    tmp_path: Path, family: str
+) -> None:
+    case = build_case(tmp_path)
+    _with_family(case, family)
+
+    errors = validate_case(case, strict_completion=True)
+
+    assert any("needs a preserved read-only query" in error for error in errors)
+
+
+def test_sql_backed_family_passes_with_a_query(tmp_path: Path) -> None:
+    case = build_case(tmp_path, queries="SELECT count(*) FROM exports;\n")
+    _with_family(case, "snowflake")
+
+    assert validate_case(case, strict_completion=True) == []
+
+
+@pytest.mark.parametrize("family", ["linear", "databricks", "azure"])
+def test_other_families_may_state_no_sql(tmp_path: Path, family: str) -> None:
+    case = build_case(tmp_path)
+    _with_family(case, family)
+
+    assert validate_case(case, strict_completion=True) == []
+
+
+def test_sql_backed_family_recorded_as_not_used_needs_no_query(tmp_path: Path) -> None:
+    case = build_case(
+        tmp_path, brief=BRIEF.replace("\nlocal\n", "\nlocal, snowflake\n")
+    )
+    document = json.loads((case / "evidence.json").read_text(encoding="utf-8"))
+    document["coverage"].append(
+        {
+            "family": "snowflake",
+            "status": "not-needed",
+            "reason": "The export answers the question.",
+            "consequence": "No warehouse cross-check.",
+        }
+    )
+    (case / "evidence.json").write_text(json.dumps(document), encoding="utf-8")
+    write_review(case)
+
+    assert validate_case(case, strict_completion=True) == []

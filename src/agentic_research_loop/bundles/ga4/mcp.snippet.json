@@ -1,0 +1,8 @@
+{
+  "server_name": "ga4",
+  "command": "pipx",
+  "args": [
+    "run",
+    "analytics-mcp"
+  ]
+}

@@ -2,16 +2,23 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import date
 from pathlib import Path
 
-from .layout import find_repo_root
-from .research import create_manual, render_goal, resolve_case_path
-from .sources import VALID_SOURCES
-from .validation import validate_case
+from .doctor import run_doctor
+from .evidence import Evidence, Review, review_snapshot
+from .google_api import GoogleApiError, GoogleAuthError, ga4_report, gsc_query
+from .layout import find_repo_root, project_setting
+from .repo_setup import setup_repo
+from .research import case_paths, create_manual, render_goal, resolve_case_path
+from .source_bundles import disable_bundle, enable_bundle, render_bundle_list
+from .validation import GATE_LIMITS, validate_case
 
-_SOURCE_NAMES = sorted(VALID_SOURCES)
+CONTRACT_DIR = Path(__file__).parent / "contract"
+CONTRACT_FILES = {"method": "method", "evidence": "evidence-contract"}
+READ_FAILURES = (OSError, UnicodeError, ValueError, RecursionError)
 
 
 def _positive_int(value: str) -> int:
@@ -38,67 +45,21 @@ def _iso_date(value: str) -> str:
 
 def _comma_list(value: str) -> list[str]:
     values = [item.strip() for item in value.split(",")]
-    if not values or any(not item for item in values):
+    if any(not item for item in values):
         raise argparse.ArgumentTypeError(
             "must be a comma-separated list with no blanks"
         )
     return values
 
 
-def _add_source_args(parser: argparse.ArgumentParser) -> None:
-    for name in _SOURCE_NAMES:
-        parser.add_argument(
-            f"--no-{name}",
-            action="store_true",
-            help=f"Disable {name} for this case.",
-        )
-        parser.add_argument(
-            f"--{name}-hint",
-            help=f"Optional focus/hint for {name}.",
-        )
-    parser.add_argument(
-        "--context-path",
-        action="append",
-        default=[],
-        help="Attach a local context folder or file. Can be passed multiple times.",
-    )
-    parser.add_argument(
-        "--local-only",
-        action="store_true",
-        help="Disable all external sources; investigate only --context-path files.",
-    )
+def _source_hint(value: str) -> tuple[str, str]:
+    name, separator, hint = value.partition("=")
+    if not separator or not name.strip() or not hint.strip():
+        raise argparse.ArgumentTypeError("must use SOURCE=TEXT")
+    return name.strip(), hint.strip()
 
 
-def _source_kwargs(args: argparse.Namespace) -> dict:
-    enabled: dict[str, bool] = {}
-    hints: dict[str, str] = {}
-    for name in _SOURCE_NAMES:
-        attr_no = f"no_{name.replace('-', '_')}"
-        attr_hint = f"{name.replace('-', '_')}_hint"
-        if getattr(args, attr_no, False):
-            enabled[name] = False
-        hint = getattr(args, attr_hint, None)
-        if hint:
-            hints[name] = hint
-    return {
-        "enabled": enabled or None,
-        "hints": hints or None,
-        "local_context_paths": args.context_path or None,
-        "local_only": args.local_only,
-    }
-
-
-def _add_case_arg(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("case", help="Case id or path")
-
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Prepare and validate research cases run with native agent goals"
-    )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    init_parser = subparsers.add_parser("init", help="Create a case workspace")
+def _add_init_arguments(init_parser: argparse.ArgumentParser) -> None:
     init_parser.add_argument("slug", help="Short case slug")
     init_parser.add_argument("--question", help="Specific research question")
     init_parser.add_argument(
@@ -107,44 +68,90 @@ def build_parser() -> argparse.ArgumentParser:
         default="exploration",
     )
     init_parser.add_argument(
+        "--sources",
+        type=_comma_list,
+        help="Comma-separated sources this case may use. Default: every registered source.",
+    )
+    init_parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help="Allow no external source; investigate only --context-path files.",
+    )
+    init_parser.add_argument(
+        "--source-hint",
+        action="append",
+        default=[],
+        type=_source_hint,
+        metavar="SOURCE=TEXT",
+        help="Focus an allowed source. Can be passed more than once.",
+    )
+    init_parser.add_argument(
+        "--context-path",
+        action="append",
+        default=[],
+        help="Attach a local context folder or file. Can be passed more than once.",
+    )
+    init_parser.add_argument(
         "--from-spec",
         type=Path,
-        default=None,
-        help=(
-            "Directory containing pre-authored brief.md / plan.md / notes.md. "
-            "Files present are used verbatim in place of default templates; "
-            "files absent fall back to defaults. The Source Constraints section "
-            "of brief.md is always generated from the source flags."
-        ),
+        help="Directory of pre-authored artifacts. The brief's source sections are always generated.",
     )
-    _add_source_args(init_parser)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="research",
+        description="Prepare and validate research cases run with native agent goals",
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    _add_init_arguments(subparsers.add_parser("init", help="Create a case workspace"))
 
     goal_parser = subparsers.add_parser(
         "goal", help="Print the native /goal command for a case"
     )
-    _add_case_arg(goal_parser)
+    goal_parser.add_argument("case", help="Case id or path")
 
     validate_parser = subparsers.add_parser("validate", help="Validate a case")
-    _add_case_arg(validate_parser)
+    validate_parser.add_argument("case", help="Case id or path")
     validate_parser.add_argument(
         "--strict",
         action="store_true",
-        help=(
-            "Completion gate: a real answer, traceable evidence, preserved "
-            "provenance, and a completed independent challenge."
-        ),
+        help="Completion gate: a real answer, checked evidence, and a fresh independent review.",
+    )
+    validate_parser.add_argument(
+        "--json", action="store_true", help="Print the result as JSON."
+    )
+
+    subparsers.add_parser("list", help="List cases with their status")
+
+    schema_parser = subparsers.add_parser(
+        "schema", help="Print an evidence contract JSON schema"
+    )
+    schema_parser.add_argument("artifact", choices=("evidence", "review"))
+    snapshot_parser = subparsers.add_parser(
+        "review-snapshot", help="Print current artifact hashes. This approves nothing."
+    )
+    snapshot_parser.add_argument("case", help="Case id or path")
+
+    contract_parser = subparsers.add_parser(
+        "contract", help="Print the research method or the evidence contract"
+    )
+    contract_parser.add_argument("document", choices=tuple(CONTRACT_FILES))
+
+    subparsers.add_parser(
+        "setup",
+        help="Write client MCP configs and deny lists for enabled bundles, and link skills",
+    )
+    subparsers.add_parser(
+        "doctor",
+        help="Check enabled servers against their read-only control. Checks config only.",
     )
 
     gsc_parser = subparsers.add_parser(
-        "gsc",
-        help="GSC Search Analytics API (fallback — prefer your warehouse for synced GSC data)",
+        "gsc", help="Query the Search Console API. Prefer a warehouse copy when synced."
     )
-    gsc_parser.add_argument(
-        "--start-date", required=True, type=_iso_date, help="YYYY-MM-DD"
-    )
-    gsc_parser.add_argument(
-        "--end-date", required=True, type=_iso_date, help="YYYY-MM-DD"
-    )
+    gsc_parser.add_argument("--start-date", required=True, type=_iso_date)
+    gsc_parser.add_argument("--end-date", required=True, type=_iso_date)
     gsc_parser.add_argument(
         "--dimensions",
         required=True,
@@ -154,38 +161,184 @@ def build_parser() -> argparse.ArgumentParser:
     gsc_parser.add_argument("--row-limit", type=_positive_int, default=100)
     gsc_parser.add_argument("--start-row", type=_non_negative_int, default=0)
 
-    source_parser = subparsers.add_parser(
-        "source", help="Manage opt-in source bundles (examples/sources/)"
-    )
+    ga4_parser = subparsers.add_parser("ga4", help="Query the GA4 Data API")
+    ga4_parser.add_argument("--start-date", required=True, type=_iso_date)
+    ga4_parser.add_argument("--end-date", required=True, type=_iso_date)
+    ga4_parser.add_argument("--dimensions", required=True, type=_comma_list)
+    ga4_parser.add_argument("--metrics", required=True, type=_comma_list)
+    ga4_parser.add_argument("--limit", type=_positive_int, default=25)
+    ga4_parser.add_argument("--offset", type=_non_negative_int, default=0)
+    ga4_parser.add_argument("--order-by", help="Metric name to sort descending")
+
+    source_parser = subparsers.add_parser("source", help="Manage opt-in source bundles")
     source_sub = source_parser.add_subparsers(dest="source_command", required=True)
-    enable_p = source_sub.add_parser(
-        "enable", help="Wire a bundle into config/sources.json and the MCP configs"
+    enable_parser = source_sub.add_parser(
+        "enable", help="Wire a bundle into config/sources.json and the client configs"
     )
-    enable_p.add_argument("name", help="Bundle name, e.g. github")
-    disable_p = source_sub.add_parser("disable", help="Remove a bundle's wiring")
-    disable_p.add_argument("name", help="Bundle name")
+    enable_parser.add_argument("name", help="Bundle name, e.g. github")
+    disable_parser = source_sub.add_parser("disable", help="Remove a bundle's wiring")
+    disable_parser.add_argument("name", help="Bundle name")
     source_sub.add_parser("list", help="List bundles and whether they are enabled")
 
     return parser
 
 
-def _init_case(
-    parser: argparse.ArgumentParser, repo_root: Path, args: argparse.Namespace
-) -> int:
-    try:
-        result = create_manual(
-            repo_root,
-            args.slug,
-            template=args.template,
-            question=args.question,
-            from_spec_path=args.from_spec,
-            **_source_kwargs(args),
-        )
-    except ValueError as exc:
-        parser.error(str(exc))
+def _init_case(repo_root: Path, args: argparse.Namespace) -> int:
+    if args.local_only and args.sources:
+        raise ValueError("--local-only and --sources cannot be combined")
+    result = create_manual(
+        repo_root,
+        args.slug,
+        template=args.template,
+        question=args.question,
+        sources=[] if args.local_only else args.sources,
+        source_hints=dict(args.source_hint),
+        local_context_paths=args.context_path,
+        from_spec_path=args.from_spec,
+    )
     print(f"Created case: {result.case_id}")
     print(f"Path: {result.path}")
     print(f"Next: uv run research goal {result.case_id}")
+    return 0
+
+
+def _validation_result(
+    repo_root: Path, args: argparse.Namespace
+) -> tuple[str, list[str]]:
+    """Validate a case, reporting any failure to read it as a validation error."""
+    try:
+        case_path = resolve_case_path(repo_root, args.case)
+        return str(case_path), validate_case(case_path, strict_completion=args.strict)
+    except READ_FAILURES as exc:
+        return args.case, [str(exc)]
+
+
+def _validate_command(repo_root: Path, args: argparse.Namespace) -> int:
+    case, errors = _validation_result(repo_root, args)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "case": case,
+                    "strict": args.strict,
+                    "passed": not errors,
+                    "errors": errors,
+                    "limits": GATE_LIMITS,
+                },
+                indent=2,
+            )
+        )
+        return 1 if errors else 0
+    if errors:
+        print("Validation failed:")
+        for error in errors:
+            print(f"- {error}")
+        return 1
+    print(f"Validation passed: {case}")
+    if args.strict:
+        print(GATE_LIMITS)
+    return 0
+
+
+def _case_status(case_path: Path) -> str:
+    try:
+        if validate_case(case_path):
+            return "invalid"
+        strict_errors = validate_case(case_path, strict_completion=True)
+    except READ_FAILURES:
+        return "invalid"
+    return "in-progress" if strict_errors else "complete"
+
+
+def _list_command(repo_root: Path, _args: argparse.Namespace) -> int:
+    cases = case_paths(repo_root)
+    if not cases:
+        print("No cases yet. Create one with `research init <slug>`.")
+        return 0
+    width = max(len(path.name) for path in cases)
+    for path in cases:
+        print(f"{path.name:<{width}}  {_case_status(path)}")
+    return 0
+
+
+def _doctor_command(repo_root: Path, _args: argparse.Namespace) -> int:
+    checks = run_doctor(repo_root)
+    for check in checks:
+        print(f"[{check.status.upper()}] {check.source}: {check.message}")
+    if not checks:
+        print("No sources enabled. Enable one with `research source enable <name>`.")
+    print(
+        "This checks local config against each declared read-only control. "
+        "It does not contact or test the upstream server."
+    )
+    return 1 if any(check.status in {"fail", "needs-setup"} for check in checks) else 0
+
+
+def _print_actions(actions: list[str]) -> int:
+    for line in actions:
+        print(f"- {line}")
+    return 0
+
+
+def _source_command(repo_root: Path, args: argparse.Namespace) -> int:
+    if args.source_command == "list":
+        print(render_bundle_list(repo_root))
+        return 0
+    action = enable_bundle if args.source_command == "enable" else disable_bundle
+    return _print_actions(
+        action(repo_root, args.name) or [f"'{args.name}' was not enabled"]
+    )
+
+
+def _required_setting(repo_root: Path, *, env: str, setting: str, example: str) -> str:
+    value = os.environ.get(env) or project_setting(repo_root, setting)
+    if not value:
+        raise GoogleApiError(
+            f"{env} is not set. Set it, or set {setting} under "
+            f"[tool.agentic-research-loop] in pyproject.toml. Example: {example}"
+        )
+    return value
+
+
+def _gsc_command(repo_root: Path, args: argparse.Namespace) -> int:
+    if args.start_date > args.end_date:
+        raise ValueError("--start-date must be on or before --end-date")
+    result = gsc_query(
+        site=_required_setting(
+            repo_root,
+            env="GSC_SITE",
+            setting="gsc_site",
+            example="https://www.example.com/",
+        ),
+        start_date=args.start_date,
+        end_date=args.end_date,
+        dimensions=args.dimensions,
+        row_limit=args.row_limit,
+        start_row=args.start_row,
+    )
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def _ga4_command(repo_root: Path, args: argparse.Namespace) -> int:
+    if args.start_date > args.end_date:
+        raise ValueError("--start-date must be on or before --end-date")
+    result = ga4_report(
+        property_id=_required_setting(
+            repo_root,
+            env="GA4_PROPERTY_ID",
+            setting="ga4_property_id",
+            example="123456789",
+        ),
+        start_date=args.start_date,
+        end_date=args.end_date,
+        dimensions=args.dimensions,
+        metrics=args.metrics,
+        limit=args.limit,
+        offset=args.offset,
+        order_by=args.order_by,
+    )
+    print(json.dumps(result, indent=2))
     return 0
 
 
@@ -194,88 +347,49 @@ def _goal_command(repo_root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _validate_case_command(repo_root: Path, args: argparse.Namespace) -> int:
-    case_path = resolve_case_path(repo_root, args.case)
-    errors = validate_case(case_path, strict_completion=args.strict)
-    if errors:
-        print("Validation failed:")
-        for error in errors:
-            print(f"- {error}")
-        return 1
-    print(f"Validation passed: {case_path}")
+def _snapshot_command(repo_root: Path, args: argparse.Namespace) -> int:
+    snapshot = review_snapshot(resolve_case_path(repo_root, args.case))
+    print(json.dumps(snapshot, indent=2))
     return 0
 
 
-def _gsc_query_command(
-    parser: argparse.ArgumentParser, args: argparse.Namespace
-) -> int:
-    from .google_api import GoogleApiError, GoogleAuthError, gsc_query
-
-    if args.start_date > args.end_date:
-        parser.error("--start-date must be on or before --end-date")
-    try:
-        result = gsc_query(
-            start_date=args.start_date,
-            end_date=args.end_date,
-            dimensions=args.dimensions,
-            row_limit=args.row_limit,
-            start_row=args.start_row,
+def _contract_command(_repo_root: Path, args: argparse.Namespace) -> int:
+    print(
+        (CONTRACT_DIR / f"{CONTRACT_FILES[args.document]}.md").read_text(
+            encoding="utf-8"
         )
-    except (GoogleApiError, GoogleAuthError) as exc:
-        print(str(exc), file=sys.stderr)
-        return 1
-    print(json.dumps(result, indent=2))
-    return 0
-
-
-def _source_command(repo_root: Path, args: argparse.Namespace) -> int:
-    from .source_bundles import (
-        BundleError,
-        disable_bundle,
-        enable_bundle,
-        render_bundle_list,
     )
-
-    try:
-        if args.source_command == "list":
-            print(render_bundle_list(repo_root))
-            return 0
-        action = enable_bundle if args.source_command == "enable" else disable_bundle
-        for line in action(repo_root, args.name):
-            print(f"- {line}")
-    except (BundleError, ValueError, OSError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        return 1
     return 0
+
+
+def _setup_command(repo_root: Path, _args: argparse.Namespace) -> int:
+    return _print_actions(setup_repo(repo_root) or ["nothing to do"])
+
+
+COMMANDS = {
+    "init": _init_case,
+    "goal": _goal_command,
+    "validate": _validate_command,
+    "list": _list_command,
+    "review-snapshot": _snapshot_command,
+    "setup": _setup_command,
+    "doctor": _doctor_command,
+    "gsc": _gsc_command,
+    "ga4": _ga4_command,
+    "source": _source_command,
+}
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    repo_root = find_repo_root()
-
-    if args.command == "init":
-        return _init_case(parser, repo_root, args)
-
-    if args.command == "goal":
-        return _goal_command(repo_root, args)
-
-    if args.command == "validate":
-        return _validate_case_command(repo_root, args)
-
-    if args.command == "gsc":
-        return _gsc_query_command(parser, args)
-
-    if args.command == "source":
-        return _source_command(repo_root, args)
-
-    return 1
-
-
-def _entry() -> None:
+    args = build_parser().parse_args(argv)
     try:
-        exit_code = main()
-    except (FileExistsError, FileNotFoundError) as exc:
+        if args.command == "contract":
+            return _contract_command(Path(), args)
+        if args.command == "schema":
+            model = Evidence if args.artifact == "evidence" else Review
+            print(json.dumps(model.model_json_schema(), indent=2))
+            return 0
+        return COMMANDS[args.command](find_repo_root(), args)
+    except (GoogleApiError, GoogleAuthError, *READ_FAILURES) as exc:
         print(f"Error: {exc}", file=sys.stderr)
-        exit_code = 1
-    sys.exit(exit_code)
+        return 1

@@ -1,0 +1,315 @@
+#!/usr/bin/env python3
+"""Drive the installed `research` CLI offline in a throwaway HOME and consumer repo."""
+
+from __future__ import annotations
+
+import hashlib
+import os
+import shutil
+import subprocess
+import sys
+from datetime import UTC, datetime
+from pathlib import Path
+
+from drives import FEATURES, lorem, new_case
+
+REPO = Path(__file__).resolve().parents[3]
+STATE = REPO / ".verify" / "state"
+RUNS = REPO / ".verify" / "runs"
+HOME = STATE / "home"
+CONSUMER = STATE / "consumer"
+VENV = STATE / "venv"
+RESEARCH = VENV / "bin" / "research"
+TRIPWIRE_LOG = STATE / "tripwire.log"
+TRIPWIRED = (
+    "launchctl",
+    "defaults",
+    "brew",
+    "security",
+    "op",
+    "crontab",
+    "systemctl",
+    "claude",
+    "codex",
+    "npx",
+    "uvx",
+    "curl",
+    "gcloud",
+)
+TARGET = Path(os.environ.get("VERIFY_TARGET", CONSUMER))
+
+
+def fingerprint() -> str:
+    def git(*args: str) -> bytes:
+        return subprocess.run(
+            ["git", *args], cwd=REPO, check=True, capture_output=True
+        ).stdout
+
+    parts = [git("rev-parse", "HEAD"), git("diff", "HEAD")]
+    for name in sorted(
+        git("ls-files", "--others", "--exclude-standard").decode().splitlines()
+    ):
+        path = REPO / name
+        parts.append(name.encode() + (path.read_bytes() if path.is_file() else b""))
+    return hashlib.sha256(b"".join(parts)).hexdigest()
+
+
+def child_env() -> dict[str, str]:
+    return {
+        "HOME": str(HOME),
+        "XDG_CONFIG_HOME": str(HOME / ".config"),
+        "XDG_CACHE_HOME": str(HOME / ".cache"),
+        "PATH": f"{STATE / 'tripwire'}:{VENV / 'bin'}:/usr/bin:/bin",
+        "TRIPWIRE_LOG": str(TRIPWIRE_LOG),
+    }
+
+
+def write_tripwire() -> None:
+    directory = STATE / "tripwire"
+    directory.mkdir(parents=True, exist_ok=True)
+    for name in TRIPWIRED:
+        stub = directory / name
+        stub.write_text(f'#!/bin/sh\necho "{name} $*" >> "$TRIPWIRE_LOG"\nexit 127\n')
+        stub.chmod(0o755)
+
+
+def run_dir() -> Path:
+    head = subprocess.run(
+        ["git", "rev-parse", "--short=7", "HEAD"],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    dirty = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    marker = STATE / "run-dir"
+    if marker.exists():
+        return Path(marker.read_text().strip())
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    path = RUNS / f"{stamp}-{head}{'-dirty' if dirty else ''}"
+    path.mkdir(parents=True)
+    marker.write_text(str(path))
+    return path
+
+
+def doctor() -> int:
+    problems = []
+    if not (STATE / "fingerprint").exists():
+        problems.append("not launched: run `verify launch`")
+    elif (STATE / "fingerprint").read_text() != fingerprint():
+        problems.append("stale: the checkout changed since launch")
+    if not TARGET.resolve().is_relative_to(STATE.resolve()):
+        problems.append(f"target {TARGET} is outside {STATE}")
+    if not RESEARCH.exists():
+        problems.append("the installed CLI is missing")
+    if TRIPWIRE_LOG.exists() and TRIPWIRE_LOG.read_text():
+        problems.append(f"tripwire fired: {TRIPWIRE_LOG.read_text()}")
+    for problem in problems:
+        print(f"doctor: {problem}", file=sys.stderr)
+    if not problems:
+        print(f"doctor: ok, target {TARGET}, HOME {HOME}")
+    return 1 if problems else 0
+
+
+def research(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(RESEARCH), *args],
+        cwd=TARGET,
+        env=child_env(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+class Drive:
+    def __init__(self, feature: str) -> None:
+        self.feature = feature
+        self.target = TARGET
+        self.commands: list[str] = []
+        self.last_exit = 0
+        self.failures: list[str] = []
+
+    def expect(
+        self, args: list[str], code: int, *contains: str, forbid: tuple[str, ...] = ()
+    ) -> str:
+        result = research(*args)
+        output = result.stdout + result.stderr
+        self.commands.append(f"{Path(__file__).name} exec -- research {' '.join(args)}")
+        self.last_exit = result.returncode
+        with (run_dir() / f"{self.feature}.log").open("a") as log:
+            log.write(
+                f"$ research {' '.join(args)}\nexit {result.returncode}\n{output}\n"
+            )
+        if result.returncode != code:
+            self.failures.append(f"{args}: exit {result.returncode}, expected {code}")
+        self.failures += [
+            f"{args}: missing {text!r}" for text in contains if text not in output
+        ]
+        self.failures += [f"{args}: has {text!r}" for text in forbid if text in output]
+        return result.stdout
+
+    def note(self, text: str) -> None:
+        with (run_dir() / f"{self.feature}.log").open("a") as log:
+            log.write(f"# {text}\n")
+
+    def check(self, condition: bool, message: str) -> None:
+        if not condition:
+            self.failures.append(message)
+
+
+def manifest(feature: str, command: str, code: int, result: str) -> None:
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    dirty = bool(
+        subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=REPO,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    )
+    with (run_dir() / "manifest.txt").open("a") as out:
+        out.write(
+            f"feature: {feature}\nentry: research CLI\ncommand: {command}\nexit: {code}\n"
+            f"result: {result}\ntarget: {TARGET}\nsha: {sha}\ndirty: {str(dirty).lower()}\n"
+            f"started: {datetime.now(UTC).isoformat()}\n\n"
+        )
+
+
+def launch() -> int:
+    if STATE.exists():
+        shutil.rmtree(STATE)
+    HOME.mkdir(parents=True)
+    CONSUMER.mkdir()
+    write_tripwire()
+    (CONSUMER / "pyproject.toml").write_text(
+        "[project]\nname = 'consumer'\n\n[tool.agentic-research-loop]\n"
+    )
+    dist = STATE / "dist"
+    subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(dist)],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["uv", "venv", "--quiet", str(VENV)], cwd=REPO, check=True, capture_output=True
+    )
+    subprocess.run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--quiet",
+            "--python",
+            str(VENV / "bin" / "python"),
+            str(next(dist.glob("*.whl"))),
+        ],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+    )
+    (STATE / "fingerprint").write_text(fingerprint())
+    print(f"ready: {RESEARCH} installed from a wheel; consumer at {CONSUMER}")
+    return 0
+
+
+def drive(feature: str) -> int:
+    if doctor() != 0:
+        manifest(feature, "doctor refused", 1, "unreachable")
+        return 1
+    current = Drive(feature)
+    FEATURES[feature](current)
+    result = "fail" if current.failures else "pass"
+    manifest(feature, " && ".join(current.commands), current.last_exit, result)
+    for failure in current.failures:
+        print(f"FAIL {failure}", file=sys.stderr)
+    print(f"{feature}: {result}; evidence in {run_dir()}")
+    return 1 if current.failures else 0
+
+
+def control() -> int:
+    """Re-drive one mapped check against a wrong expectation. It must fail."""
+    current = Drive("control")
+    case = new_case(current, "control")
+    lorem(case)
+    current.expect(["validate", case.name, "--strict"], 0, "cannot be proved by a gate")
+    observed = "fail-observed" if current.failures else "passed-unexpectedly"
+    manifest(
+        "control:lorem-gate",
+        "assert lorem case exits 0 and passes strict",
+        current.last_exit,
+        observed,
+    )
+    print(f"control: {observed}")
+    return 0 if current.failures else 1
+
+
+def reset() -> int:
+    for path in (
+        CONSUMER / "research",
+        CONSUMER / "config",
+        CONSUMER / ".agents",
+        CONSUMER / ".claude",
+        CONSUMER / ".codex",
+        CONSUMER / ".cursor",
+    ):
+        shutil.rmtree(path, ignore_errors=True)
+    (CONSUMER / ".mcp.json").unlink(missing_ok=True)
+    print("reset: consumer back to baseline")
+    return 0
+
+
+def clean() -> int:
+    tripped = TRIPWIRE_LOG.read_text() if TRIPWIRE_LOG.exists() else ""
+    path = run_dir() if STATE.exists() else None
+    if path is not None:
+        (path / "tripwire.txt").write_text(tripped or "empty\n")
+    shutil.rmtree(STATE, ignore_errors=True)
+    print(f"clean: tripwire {'FIRED' if tripped else 'empty'}; evidence kept in {path}")
+    return 1 if tripped else 0
+
+
+def main() -> int:
+    command = sys.argv[1] if len(sys.argv) > 1 else ""
+    if command == "exec":
+        args = sys.argv[3:] if sys.argv[2:3] == ["--"] else sys.argv[2:]
+        args = [str(RESEARCH) if arg == "research" else arg for arg in args]
+        return subprocess.run(args, cwd=TARGET, env=child_env(), check=False).returncode
+    if command == "drive" and sys.argv[2:3] and sys.argv[2] in FEATURES:
+        return drive(sys.argv[2])
+    if command == "inventory":
+        return subprocess.run(
+            [str(RESEARCH), "--help"], env=child_env(), check=False
+        ).returncode
+    simple = {
+        "launch": launch,
+        "doctor": doctor,
+        "reset": reset,
+        "control": control,
+        "clean": clean,
+    }
+    if command in simple:
+        return simple[command]()
+    print(
+        f"usage: verify launch|doctor|reset|drive <{'|'.join(FEATURES)}>|control|clean|inventory|exec -- <argv>",
+        file=sys.stderr,
+    )
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

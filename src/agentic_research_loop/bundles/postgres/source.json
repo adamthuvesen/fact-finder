@@ -1,0 +1,16 @@
+{
+  "sources": {
+    "postgres": {
+      "display_name": "Postgres",
+      "category": "warehouse",
+      "transport": "stdio",
+      "read_only_control": {
+        "mechanism": "server_flag",
+        "detail": "--access-mode=restricted"
+      },
+      "plan_line": "Postgres for live metrics and application-database evidence.",
+      "notes": "Query a Postgres database via Postgres MCP Pro in restricted (read-only) mode. Discover objects live before querying — list schemas and tables, inspect columns — do not assume a schema. SELECT-only: the server parses each statement and runs it in a read-only transaction. Prefer explicit column lists and bounded result sets over SELECT *.",
+      "sql_backed": true
+    }
+  }
+}

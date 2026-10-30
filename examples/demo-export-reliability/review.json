@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "reviewer": "demo-reviewer-subagent",
+  "reviewed_hashes": {
+    "brief.md": "bedfb17fb85d5cd8dcbe219517cf60f920c6444ea748f67367ad79d7994678f0",
+    "evidence.json": "c915a332aea5b97fad08cacbc1356effd3fe4e4c46c73991925ba4108ead9fb2",
+    "evidence/change-log.md": "e697db7179f9b3a107da4a9aaac78755d59183948c563f5595799d760d087aa3",
+    "evidence/windows.json": "a7664d52e40a28e0a131390bff664db6a52c2d63c2bb6dfd0a1bafb837b5e335",
+    "queries.sql": "75d6020fbad0698fbbd4838abf35158b1b97ff7628d9f544e214a5c02bf09904",
+    "report.md": "97d0da830b56b53fcdd2363eae126e77c459c5fee49fce549ae6a67c393de15c",
+    "source-objects.md": "eeaf2e6b11832cc3e2a9167f5e48f3ae182dc5510a47fa4fb0cc924072ba3819"
+  },
+  "objections": [
+    {
+      "objection": "A volume spike or unrelated platform change in the same window could explain the break.",
+      "disposition": "resolved",
+      "resolution": "Scheduled jobs stayed flat, and the notes record no counting change."
+    },
+    {
+      "objection": "The February retry-policy tweak could have contributed materially.",
+      "disposition": "resolved",
+      "resolution": "It predates the inflection by two weeks, and success rate held at 98% until the schedule change."
+    },
+    {
+      "objection": "All evidence comes from one weekly aggregate file.",
+      "disposition": "narrowed",
+      "resolution": "The step change holds across all full post-change weeks. The report discloses the single-source limit under Risks And Caveats."
+    }
+  ],
+  "strongest_alternative": "A volume spike or unrelated platform change in the same window.",
+  "weakest_claim": "C4 attributes the loss to the scheduler change from timing and one operational note.",
+  "fragile_dependency": "Partial-week data at the window edges, and reliance on a single weekly aggregate file.",
+  "verdict": "pass"
+}

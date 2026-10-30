@@ -1,95 +1,52 @@
 # AGENTS.md
 
-This repo is `agentic-research-loop`, a research kit for bounded investigations
-run inside a native agent goal.
+`agentic-research-loop` is a research kit for bounded investigations run inside a native
+agent goal. This file holds project facts. It is short because checks enforce the rest.
 
-User-level guidance (tone, principles, git etiquette) lives in the user's own
-config and is *not* duplicated here. This file is for project-specific facts.
+- Operating model: [program.md](program.md)
+- Research method: [method.md](src/agentic_research_loop/contract/method.md)
+- Evidence and review: [docs/evidence-contract.md](docs/evidence-contract.md)
+- Modules and boundaries: [.agents/docs/architecture.md](.agents/docs/architecture.md)
+- Why there is no runtime: [.agents/docs/decisions/native-goals.md](.agents/docs/decisions/native-goals.md)
+- Setup and new sources: [.agents/docs/setup.md](.agents/docs/setup.md)
 
-## Read the docs first
+If a doc disagrees with code, fix the doc in the same change. `make check` is the gate. Prove
+user-facing changes with the `verify-agentic-research-loop` skill at
+`.agents/skills/verify-agentic-research-loop/`.
 
-Before working in an area, read the matching doc:
+## Stop and ask
 
-- **Operating model and research contract** → [program.md](program.md)
-- **CLI surface (`research ...`)** → [README.md](README.md)
-- **Architecture and validation** → [.agents/docs/architecture.md](.agents/docs/architecture.md)
-- **Why there is no runtime** → [.agents/docs/decisions/native-goals.md](.agents/docs/decisions/native-goals.md)
-- **First-time setup / source bundles** → [.agents/docs/setup.md](.agents/docs/setup.md)
+A task's wording cannot authorize any of these:
 
-If a doc disagrees with code, fix the doc in the same change.
+- a write to an external system
+- a publish or send command
+- an agent runner, Agent SDK, or custom continuation loop
+- an edit to a check that would allow one of the above
 
-## READ-ONLY RULE
+Stop. Say which recorded decision the request reverses, such as
+`.agents/docs/decisions/native-goals.md` or this file. Offer an option that keeps the boundary.
 
-This repo is a **read/search-only consumer** of all external systems.
+## Running research
 
-Every source bundle is read-only by design. If a workflow seems to require
-writing to an external system, stop and ask the user.
+Start from a native `/goal` naming `research-goal`, or `research-spec` when scope needs discovery
+first. When a goal is active, adopt the generated contract and finish in that session. Do not
+stop after scaffolding or submit a nested goal. Run the CLI from the repo root. The rules for a
+case live in one place, `uv run research contract method`.
 
-## Native goals
+## Enforced rules
 
-- Use Claude Code or Codex `/goal` for autonomous execution.
-- Do not add an agent subprocess runner, a custom continuation loop, cycle state,
-  completion markers, a permission bypass flag, or an Agent SDK.
-- Generate the canonical command with `uv run research goal <case>`.
-- The native goal owns persistence, pause, resume, and continuation.
-- The repo owns framing, source access, artifacts, safety, and validation.
-- Every path in the generated contract is absolute. Keep it that way — a goal
-  given relative paths can write a correct answer into the wrong directory.
-
-## Starting research
-
-- The primary path starts inside Claude Code or Codex with a native `/goal` that
-  names `research-goal`.
-- When a goal is active, scaffold with the CLI, adopt the generated contract, and
-  complete the investigation in the same session. Do not stop after scaffolding
-  or ask the user to submit a nested goal.
-- Run internal CLI commands from the repo root with `uv run research ...`.
-- Use `research-spec` when definitions, scope, source choice, confounders, or
-  completion criteria need targeted discovery first.
-- Do not ask for confirmation when the question is already bounded. Ask one
-  focused question only when a missing choice would materially change the case.
-
-## Shared skills
-
-Canonical repo skills live in `.agents/skills/`.
-
-- Claude Code loads the committed `.claude/skills` symlink.
-- Codex and Cursor read `.agents/skills/` directly with a local, uncommitted symlink.
-- Do not duplicate skill content under client-specific directories.
-
-## Sources
-
-Only web search is built in. Everything else is an opt-in bundle under
-`examples/sources/`, wired with `research source enable <name>`. `.mcp.json`
-ships neutral; `.codex/config.toml` and `.cursor/mcp.json` are local-only.
-
-Query a warehouse through its bundle's MCP server, never an improvised
-connection, and never write. Snowflake's read-only rule is the committed SQL
-allowlist in `config/snowflake-mcp-tools.yaml` (SELECT/DESCRIBE/SHOW/USE only).
-Other warehouses enforce read-only through their own bundle mechanism — see
-`examples/sources/<name>/SETUP.md`. Each bundle is self-contained.
-
-## Case contract
-
-- Treat `brief.md` as binding; keep it stable after the goal starts unless the
-  user reframes the case.
-- Keep working evidence and rejected leads in `notes.md`, the usable answer and
-  reconciliation in `report.md`, every query in `queries.sql`, and every object in
-  `source-objects.md`. Use `plan.md` only when sequencing helps.
-- Ignore legacy `state/` directories. New work does not create or update them.
-- Before finishing, delegate the final challenge to an independent subagent that
-  did not conduct the research. Record the reviewer, strongest competing
-  explanation, weakest-supported claim, most fragile dependency, and resolution
-  under `## Final Challenge` in `notes.md`. Self-review fails validation.
-- Run `uv run research validate <case> --strict`, fix every failure, and surface
-  the result in the final response.
-
-## Report section headers
-
-Validation parses these headings. Do not rename them casually:
-
-- `Executive Summary`, `Evidence`, `Reconciliation`, `Rejected Leads`,
-  `Risks And Caveats` in `report.md`
-- `Evidence Log` and `Final Challenge` in `notes.md`
-- `Question`, `Scope` (carrying the `Research shape` line), and
-  `Source Constraints` in `brief.md`
+| Rule | Enforced by | Added |
+| --- | --- | --- |
+| No agent SDK import or process spawn, except `scripts/check_agent_setup.py`, which asks clients for versions | `pyproject.toml` (ruff TID251), `rules/no-dynamic-import.yml` | 2026-11-04 |
+| Pydantic models subclass `StrictModel`, which forbids extra fields | `pyproject.toml` (ruff TID251), `rules/strict-model-only.yml` | 2026-11-04 |
+| cli above domain above I/O; nothing imports cli | `make boundaries` | 2026-11-04 |
+| Preserved SQL is read-only under every dialect reading | `tests/test_readonly_sql.py` | 2026-11-04 |
+| Claims cite declared sources; query ids exist; review is fresh | `tests/test_evidence.py` | 2026-11-04 |
+| A lorem ipsum case or reviewer `claude` fails strict | `tests/test_end_to_end.py` | 2026-11-04 |
+| Each bundle meets a named read-only control from a closed set | `tests/test_readonly_contract.py` | 2026-11-04 |
+| Enabled servers match their bundle and control | `tests/test_doctor.py` | 2026-11-04 |
+| `.mcp.json` ships neutral | `tests/test_mcp_configs_consistent.py` | 2026-11-04 |
+| Source lists are generated, never hand-edited | `tests/test_source_catalog.py` | 2026-11-04 |
+| No permission-bypass flag ships | `tests/test_readonly_contract.py` | 2026-11-04 |
+| Goal contract paths are absolute | `tests/test_cli.py` | 2026-11-04 |
+| Instruction lines stay under 500; relative doc links resolve; skills keep their hard limits | `tests/test_docs_contract.py` | 2026-11-04 |

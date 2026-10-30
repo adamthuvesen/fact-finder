@@ -4,8 +4,9 @@ A complete root-cause case over the synthetic data in
 [`../local-sources/`](../local-sources/). Read it to see the artifact shape a
 finished investigation leaves behind before running one yourself.
 
-Start with [`report.md`](report.md) for the answer, then [`notes.md`](notes.md)
-for the working record and the `## Final Challenge` block.
+Start with [`report.md`](report.md) for the answer. Then read
+[`evidence.json`](evidence.json) for the checked claims and
+[`review.json`](review.json) for the independent challenge.
 
 Reproduce it:
 

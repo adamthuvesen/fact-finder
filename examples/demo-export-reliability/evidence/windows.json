@@ -1,0 +1,19 @@
+{
+  "derived_from": "examples/local-sources/exports_weekly.csv",
+  "pre": {
+    "weeks": 9,
+    "first_week": "2026-01-05",
+    "jobs_scheduled": 44990,
+    "jobs_succeeded": 44090,
+    "jobs_failed": 900,
+    "avg_queue_minutes": 8.0
+  },
+  "post": {
+    "weeks": 5,
+    "first_week": "2026-03-09",
+    "jobs_scheduled": 25500,
+    "jobs_succeeded": 21420,
+    "jobs_failed": 4080,
+    "avg_queue_minutes": 42.0
+  }
+}

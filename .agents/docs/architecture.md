@@ -1,128 +1,75 @@
 # Architecture
 
-`agentic-research-loop` is a research kit for bounded investigations, not an
-agent runtime. The client owns execution; the repo owns everything around it.
-
-## System shape
+`agentic-research-loop` is a research kit for bounded investigations, not an agent
+runtime. The client owns execution. The repo owns everything around it.
 
 ```text
-Claude Code or Codex session
-          |
-          v
 /goal names research-goal (or research-spec)
-          |
-          v
-skill calls research init and research goal internally
-          |
-          v
-case artifacts -> research validate --strict
+  -> skill calls research init and research goal
+  -> case artifacts -> research validate --strict
 ```
 
-### Native agent client
+## Modules
 
-Claude Code or Codex owns the long-running goal, session persistence,
-continuation, pause, resume, and tool calls. The shared skill completes the case
-inside that session. The repo never launches either client.
+`make boundaries` enforces these layers. A module imports only from layers below it.
 
-### Repository tools
+| Layer | Modules | Job |
+| --- | --- | --- |
+| CLI | `cli` | Commands, printing, clean errors |
+| Workflows | `research`, `validation`, `repo_setup`, `doctor`, `source_catalog` | Create, validate, set up, check, generate docs |
+| Bundles | `source_bundles` | Find, enable, and disable bundles |
+| Domain | `evidence`, `client_configs`, `templates`, `from_spec` | Evidence contract, client shapes, artifact text |
+| Models | `sources`, `readonly_sql`, `strict_model` | Source registry, SQL parsing, the Pydantic base |
+| I/O | `layout`, `io`, `google_api` | Paths, atomic writes, read-only API calls |
 
-- [cli.py](../../src/agentic_research_loop/cli.py) exposes `init`, `goal`,
-  `validate`, `gsc`, and `source`.
-- [research.py](../../src/agentic_research_loop/research.py) creates cases,
-  resolves case paths, and renders the goal contract.
-- [templates.py](../../src/agentic_research_loop/templates.py) owns the artifact
-  templates and `goal_prompt`, the generated `/goal` contract.
-- [validation.py](../../src/agentic_research_loop/validation.py) checks artifact
-  completeness, the root-cause design contract, and read-only SQL.
-- [sql_safety.py](../../src/agentic_research_loop/sql_safety.py) parses preserved
-  SQL for read-only safety.
-- [sources.py](../../src/agentic_research_loop/sources.py) holds the source
-  registry and renders per-case source constraints.
-- [source_bundles.py](../../src/agentic_research_loop/source_bundles.py) wires
-  opt-in bundles into the MCP configs.
-- [google_api.py](../../src/agentic_research_loop/google_api.py) provides the
-  read-only GSC fallback.
+Skills, bundles, and the method and evidence contract live inside the package as data
+(`src/agentic_research_loop/skills`, `.../bundles`, `.../contract`), so a consumer gets them from its
+pin. `.agents/skills/*` and `examples/sources` are symlinks to them in this repo.
 
-`research goal` prints the contract; inside an active goal the skill adopts it
-and keeps working. The skill carries no second copy of the completion prompt.
+## Absolute paths
 
-### The contract is absolute-path only
-
-Every path in the generated contract comes from `case_path.resolve()`. A goal
-handed relative paths can write a correct answer into the wrong directory and
-still look finished — the case directory stays untouched while the work looks
-done. `resolve_case_path` independently refuses any case that is not a direct
-child of `research/`.
-
-## Case artifacts
-
-The case directory is the integration boundary between humans, agents, and
-validation:
-
-- `brief.md` — binding question, scope, source constraints, success criteria
-- `notes.md` — hypotheses, evidence log, dead ends, open questions, final challenge
-- `report.md` — the answer, evidence, reconciliation, rejected leads, caveats
-- `queries.sql` — every evidence query, or an explicit reason none was used
-- `source-objects.md` — fully qualified objects or stable URLs, with access dates
-- `plan.md` — optional, when sequencing genuinely helps
-
-No JSON state is required. Legacy `state/` directories are ignored, so old cases
-stay inspectable without the new workflow depending on the removed runtime.
+Every path in the goal contract is resolved, because a goal handed relative paths can write
+a correct answer into the wrong directory and still look finished.
+`resolve_case_path` refuses any case that is not a direct child of `research/`.
 
 ## Source boundary
 
-Only **web search** is built in. Every other external system ships as an opt-in
-bundle under [`examples/sources/`](../../examples/sources/); enable one with
-`research source enable <name>`, which registers it in `config/sources.json` and
-wires any MCP server into the MCP configs. **Local context** is separate from the
-registry: attach folders or files per case with `--context-path`.
+A bundle has `source.json`, `SETUP.md`, and, for an MCP server, `mcp.snippet.json`. The
+last holds one server definition. `client_configs` generates each client's shape and
+deny list from it. It adds only what is missing and keeps every existing value. A server
+name it did not add is a collision: the command fails and changes nothing.
+`config/sources.json` records what it added, and disable removes only that.
 
-Each bundle declares how read-only is enforced — a config flag, an OAuth scope, a
-SQL allowlist, or a read-only credential — and
-[`tests/test_readonly_contract.py`](../../tests/test_readonly_contract.py) checks
-the shipped config against that declaration. Safety lives in tool configuration,
-the client's permission prompts, repository instructions, and validation of
-preserved SQL.
+`read_only_control` in `source.json` names one mechanism from a closed set:
 
-Which sources a case may use is recorded in its brief's `## Source Constraints`
-section, generated by `research init`. That section is what `research goal` reads
-back into the contract, so a local-only case tells the goal it has no MCP and a
-warehouse case tells it to preserve queries.
+- **Checked from config:** `url_suffix`, `server_flag`, `arg_absent`,
+  `statement_allowlist`. `research doctor` fails when one does not hold.
+- **Declared only:** `credential_scope`, `credential`, `native`. These live in a grant
+  or an account that no file here can show. Doctor reports them as declared.
+
+Doctor reads each client's wired entry and deny list. It never contacts a server, so a
+pass says nothing about what the upstream server does. An unfilled placeholder reports
+`needs-setup`. Deny lists cover only write tools a bundle's `SETUP.md` names.
+
+`research init` records a case's allowed sources in its brief, and `research goal` reads them.
+
+## SQL boundary
+
+`readonly_sql` parses preserved SQL under eight dialect readings and requires every
+reading that parses to be read-only. It rejects executable and nested block comments on
+the raw text, because a comment is invisible to the parser. It cannot detect `SELECT side_effect_proc()`. The
+read-only role on the connection is the real guard.
 
 ## Validation
 
-`research validate` checks structure and read-only SQL — safe at scaffold time.
-`--strict` is the goal's terminal condition and adds the completion gate: a
-specific question, a substantive report with no placeholder sections, a complete
-evidence record, concrete source objects, preserved SQL or a stated reason, and a
-completed `## Final Challenge` naming an independent reviewer.
-
-The reviewer check is the sharp one. It rejects self-attribution (`main agent`,
-`me`, `research agent`) and unfilled placeholders by exact-set membership rather
-than substring, so a real identifier like `independent-subagent-challenger`
-passes. `Resolution: unresolved because <reason>` passes; a bare `unresolved`
-does not. Disclosing an objection you could not settle is allowed; hiding one is
-not.
-
-For a `root-cause` case, validation also enforces the design contract that makes
-it falsifiable: `## Hypotheses`, `## Known Confounders`, and
-`## Required Cross-Checks` in the brief, and all four design fields on every
-high-priority thread in `plan.md`.
+`research validate` checks structure, read-only SQL, and evidence integrity, and is safe
+at scaffold time. `--strict` is the goal's terminal condition. `evidence.json` owns
+evidence, `review.json` owns the final challenge, and `notes.md` carries no gate. See
+[the evidence contract](../../docs/evidence-contract.md).
 
 ## Deliberate omissions
 
-The repo has no subprocess runners, cycle markers, retry loop, progress hash,
-stall detector, machine challenge state, permission bypass flags, status
-renderer, or publishing layer. Native goals already own execution state, and
-`report.md` is the durable published artifact.
-
-See [the decision record](decisions/native-goals.md) for the reasoning and the
-costs, and [the canary](../../evals/native-goal/README.md) for how client goal
-behavior stays tested.
-
-## Related docs
-
-- [README.md](../../README.md)
-- [AGENTS.md](../../AGENTS.md)
-- [program.md](../../program.md)
-- [setup.md](./setup.md)
+The repo has no subprocess runners, cycle markers, retry loop, progress hash, stall
+detector, machine challenge state, permission bypass flags, status renderer, or
+publishing layer. See [the decision record](decisions/native-goals.md) and
+[the canary](../../evals/native-goal/README.md).

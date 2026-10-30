@@ -1,136 +1,118 @@
-"""The read-only contract.
+"""Every shipped bundle satisfies the read-only control it declares.
 
-Every registered source SHALL declare a valid transport and a recognized
-read-only mechanism. Every opt-in bundle under ``examples/sources/`` SHALL
-satisfy its declared mechanism: a config-family token must be present (or absent)
-in the shipped MCP snippet, and a documented-family mechanism (e.g.
-``credential-only``) must be covered by the bundle's SETUP.md.
+Each bundle names one control from a closed set. A config-checked control is tested
+against the server definition's structure. A declared control lives outside any file
+here, so its bundle's SETUP.md must name it. A test cannot prove the control is
+correct upstream. That needs live verification.
 """
 
 from __future__ import annotations
 
-import json
+import re
 from pathlib import Path
 
 import pytest
 
-from agentic_research_loop import sources
-from agentic_research_loop.sources import (
-    SOURCE_CONFIGS,
-    VALID_TRANSPORTS,
-    classify_read_only_mechanism,
+from agentic_research_loop.doctor import allowlist_problem, control_problem
+from agentic_research_loop.source_bundles import (
+    PACKAGED_BUNDLES,
+    Bundle,
+    available_bundles,
+    load_bundle,
 )
+from agentic_research_loop.sources import CONFIG_CHECKED
 
 ROOT = Path(__file__).resolve().parents[1]
-BUNDLES_DIR = ROOT / "examples" / "sources"
 
 
-def test_every_source_declares_valid_transport_and_mechanism() -> None:
-    for name, spec in SOURCE_CONFIGS.items():
-        assert spec["transport"] in VALID_TRANSPORTS, f"{name}: bad transport"
-        assert classify_read_only_mechanism(spec["read_only_mechanism"]) is not None, (
-            f"{name}: unrecognized read_only_mechanism"
-        )
+def _bundles() -> list[Bundle]:
+    return [load_bundle(ROOT, name) for name in available_bundles(ROOT)]
 
 
-def _bundle_dirs() -> list[Path]:
-    if not BUNDLES_DIR.exists():
-        return []
-    return sorted(p for p in BUNDLES_DIR.iterdir() if p.is_dir())
+def test_bundles_ship_inside_the_package_and_examples_points_at_them() -> None:
+    assert (ROOT / "examples" / "sources").resolve() == PACKAGED_BUNDLES.resolve()
+    assert len(_bundles()) >= 29
 
 
-def test_bundle_keys_are_unique() -> None:
-    """No two bundles (or a bundle and a built-in) may share a source ``key``.
-
-    The registry merges on ``key``, so a collision silently clobbers one source's
-    enabled/hint/notes state. ``register_source`` rejects this at runtime; this
-    pins it for the shipped bundles too.
-    """
-    seen: dict[str, str] = {
-        spec["key"]: name for name, spec in sources._BUILTIN_SOURCES.items()
-    }
-    for bundle in _bundle_dirs():
-        payload = json.loads((bundle / "source.json").read_text(encoding="utf-8"))
-        sources_map = payload.get("sources", payload)
-        name, spec = next(iter(sources_map.items()))
-        key = spec["key"]
-        assert key not in seen, (
-            f"{bundle.name}: key {key!r} already used by {seen[key]!r}"
-        )
-        seen[key] = name
-
-
-@pytest.mark.parametrize("bundle", _bundle_dirs(), ids=lambda p: p.name)
-def test_bundle_declares_and_enforces_read_only(bundle: Path) -> None:
-    # source.json holds exactly one fully valid registry spec.
-    source_json = json.loads((bundle / "source.json").read_text(encoding="utf-8"))
-    sources_map = source_json.get("sources", source_json)
-    assert len(sources_map) == 1, f"{bundle.name}: expected exactly one source"
-    name, spec = next(iter(sources_map.items()))
-    sources._validate_source_spec(name, spec)
-
-    mech = classify_read_only_mechanism(spec["read_only_mechanism"])
-    assert mech is not None
-
-    setup = (bundle / "SETUP.md").read_text(encoding="utf-8")
-    snippet_path = bundle / "mcp.snippet.json"
-
-    if snippet_path.is_file():
-        # mcp.snippet.json is internally consistent across the three tool shapes.
-        snippet = json.loads(snippet_path.read_text(encoding="utf-8"))
-        server = snippet["server_name"]
-        assert list(snippet["claude"].keys()) == [server], f"{bundle.name}: claude key"
-        assert list(snippet["cursor"].keys()) == [server], f"{bundle.name}: cursor key"
-        assert f"[mcp_servers.{server}]" in snippet["codex_toml"], (
-            f"{bundle.name}: codex"
+@pytest.mark.parametrize("bundle", _bundles(), ids=lambda b: b.name)
+def test_bundle_satisfies_its_declared_control(bundle: Bundle, tmp_path: Path) -> None:
+    control = bundle.spec.read_only_control
+    setup = (bundle.path / "SETUP.md").read_text(encoding="utf-8")
+    if control.mechanism in CONFIG_CHECKED:
+        assert bundle.server is not None, "a config-checked control needs a server"
+        if bundle.server.support_files:
+            (tmp_path / "config").mkdir()
+            for name in bundle.server.support_files:
+                (tmp_path / "config" / name).write_bytes(
+                    (bundle.path / name).read_bytes()
+                )
+        assert (
+            control_problem(
+                tmp_path, control, url=bundle.server.url or "", args=bundle.server.args
+            )
+            is None
         )
     else:
-        # MCP-less bundle: a cli/native source (e.g. GSC's `research gsc`) ships only
-        # source.json + SETUP.md. With no shipped MCP config, a config-family token
-        # cannot be enforced, so the mechanism must be a documented one covered by
-        # SETUP.md (checked below).
-        snippet = None
-        assert mech.family == "documented", (
-            f"{bundle.name}: a config-family read_only_mechanism requires an "
-            "mcp.snippet.json to enforce it"
-        )
+        assert control.detail.lower() in setup.lower()
 
-    if mech.family == "config":
-        blob = (
-            json.dumps(snippet["claude"])
-            + json.dumps(snippet["cursor"])
-            + snippet["codex_toml"]
+
+def _server_bundles() -> list[Bundle]:
+    return [bundle for bundle in _bundles() if bundle.server is not None]
+
+
+@pytest.mark.parametrize("bundle", _server_bundles(), ids=lambda b: b.name)
+def test_write_tools_are_named_in_setup(bundle: Bundle) -> None:
+    """A deny entry must come from the bundle's documentation, never from a guess."""
+    assert bundle.server is not None
+    setup = (bundle.path / "SETUP.md").read_text(encoding="utf-8")
+    for tool in bundle.server.write_tools:
+        assert tool in setup, tool
+
+
+@pytest.mark.parametrize("bundle", _server_bundles(), ids=lambda b: b.name)
+def test_every_placeholder_in_a_definition_is_declared(bundle: Bundle) -> None:
+    """Doctor can flag only declared placeholders, so an undeclared one goes unnoticed."""
+    assert bundle.server is not None
+    text = bundle.server.model_dump_json(exclude={"placeholders"})
+    found = re.findall(r"YOUR[-_][A-Z_-]+|/absolute/path/\S+?\.\w+", text)
+    assert set(found) == set(bundle.server.placeholders)
+
+
+def test_shipped_snowflake_allowlist_is_read_only() -> None:
+    text = (PACKAGED_BUNDLES / "snowflake" / "snowflake-mcp-tools.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    assert allowlist_problem(text) is None
+
+
+_SKIP_DIRS = {
+    ".git",
+    ".venv",
+    "__pycache__",
+    ".ruff_cache",
+    ".pytest_cache",
+    "research",
+}
+# The decision record has to name the flags to explain why they are gone.
+_BYPASS_FLAG_EXEMPT = {
+    Path("tests/test_readonly_contract.py"),
+    Path(".agents/docs/decisions/native-goals.md"),
+}
+
+
+def test_no_permission_bypass_flag_ships_anywhere() -> None:
+    """The bypass flags existed only because the loop was headless."""
+    banned = ("dangerously-skip-permissions", "dangerously-bypass-approvals")
+    offenders = [
+        relative
+        for path in ROOT.rglob("*")
+        if path.is_file()
+        and not _SKIP_DIRS & set(path.parts)
+        and (relative := path.relative_to(ROOT)) not in _BYPASS_FLAG_EXEMPT
+        and any(
+            flag in path.read_text(encoding="utf-8", errors="ignore") for flag in banned
         )
-        if mech.expect_present:
-            assert mech.token in blob, (
-                f"{bundle.name}: '{mech.token}' missing from config"
-            )
-        else:
-            assert mech.token not in blob, (
-                f"{bundle.name}: '{mech.token}' must be absent"
-            )
-    else:
-        # documented (credential-only / scope / native / statement-allowlist):
-        # read-only is enforced outside the MCP args, so SETUP.md must both say
-        # "read-only" AND name the control that enforces it — a bare mention of
-        # the word is not enough. A unit test can't prove the control is *correct*
-        # (that needs live verification), but it can require one to be named, which
-        # catches a SETUP that only gestures at read-only.
-        low = setup.lower()
-        assert "read-only" in low, (
-            f"{bundle.name}: SETUP.md must document read-only enforcement"
-        )
-        controls = (
-            "scope",
-            "account",
-            "role",
-            "credential",
-            "permission",
-            "key",
-            "token",
-            "allowlist",
-        )
-        assert any(control in low for control in controls), (
-            f"{bundle.name}: SETUP.md names no control that enforces read-only "
-            "(expected one of: account/role/scope/key/permission/allowlist)"
-        )
+    ]
+
+    assert offenders == []

@@ -1,0 +1,12 @@
+{
+  "server_name": "amplitude",
+  "url": "https://mcp.amplitude.com/mcp",
+  "write_tools": [
+    "create_chart",
+    "create_dashboard",
+    "create_cohort",
+    "create_metric",
+    "create_experiment",
+    "create_feature_flag"
+  ]
+}

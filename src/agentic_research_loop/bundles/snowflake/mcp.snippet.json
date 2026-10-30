@@ -1,0 +1,22 @@
+{
+  "server_name": "snowflake",
+  "command": "/usr/bin/env",
+  "args": [
+    "-u",
+    "UV_ENV_FILE",
+    "uvx",
+    "--from",
+    "snowflake-labs-mcp",
+    "mcp-server-snowflake",
+    "--connection-name",
+    "default",
+    "--service-config-file",
+    "config/snowflake-mcp-tools.yaml"
+  ],
+  "write_tools": [
+    "write_semantic_view_query"
+  ],
+  "support_files": [
+    "snowflake-mcp-tools.yaml"
+  ]
+}

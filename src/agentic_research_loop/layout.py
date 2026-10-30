@@ -1,26 +1,54 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+import tomllib
+from datetime import date, datetime
 from pathlib import Path
+from typing import Any, cast
+
+from .io import read_text
+
+PROJECT_NAME = "agentic-research-loop"
+
+
+def as_table(value: object) -> dict[str, Any]:
+    return cast("dict[str, Any]", value) if isinstance(value, dict) else {}
+
+
+def _project_settings(pyproject_path: Path) -> dict[str, Any] | None:
+    """Return the engine settings table, or None if this is not an engine project."""
+    try:
+        payload = tomllib.loads(read_text(pyproject_path))
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"{pyproject_path} is not valid TOML: {exc}") from exc
+    tool = as_table(payload.get("tool"))
+    if PROJECT_NAME in tool:
+        return as_table(tool[PROJECT_NAME])
+    return {} if as_table(payload.get("project")).get("name") == PROJECT_NAME else None
 
 
 def find_repo_root(start: Path | None = None) -> Path:
+    """Find this repo, or a consumer repo that declares `[tool.agentic-research-loop]`."""
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
         pyproject_path = candidate / "pyproject.toml"
-        if pyproject_path.exists():
-            text = pyproject_path.read_text(encoding="utf-8")
-        else:
-            continue
-        if (
-            'name = "agentic-research-loop"' in text
-            or "name = 'agentic-research-loop'" in text
-        ):
+        if pyproject_path.exists() and _project_settings(pyproject_path) is not None:
             return candidate
     raise FileNotFoundError(
-        "Could not locate the agentic-research-loop repo root from the current directory."
+        f"Could not find a project root from {current}. Run from the {PROJECT_NAME} "
+        f"repo, or add a [tool.{PROJECT_NAME}] table to your pyproject.toml."
     )
+
+
+def project_setting(repo_root: Path, name: str) -> str | None:
+    """Read one string value from `[tool.agentic-research-loop]`."""
+    settings = _project_settings(repo_root / "pyproject.toml") or {}
+    value = settings.get(name)
+    return value if isinstance(value, str) else None
+
+
+def local_today() -> date:
+    return datetime.now().astimezone().date()
 
 
 MAX_SLUG_LENGTH = 60
@@ -149,7 +177,7 @@ def slugify(value: str, *, max_length: int = MAX_SLUG_LENGTH) -> str:
 
 
 def case_slug(question_or_slug: str, today: date | None = None) -> str:
-    return f"{(today or date.today()).isoformat()}-{slugify(question_or_slug)}"
+    return f"{(today or local_today()).isoformat()}-{slugify(question_or_slug)}"
 
 
 def research_dir(repo_root: Path) -> Path:
@@ -182,3 +210,11 @@ def source_objects_path(case_path: Path) -> Path:
 
 def plan_path(case_path: Path) -> Path:
     return case_path / "plan.md"
+
+
+def evidence_path(case_path: Path) -> Path:
+    return case_path / "evidence.json"
+
+
+def review_path(case_path: Path) -> Path:
+    return case_path / "review.json"

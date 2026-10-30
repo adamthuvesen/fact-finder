@@ -1,329 +1,234 @@
+"""The source registry: what each source is and how it stays read-only.
+
+Only web search is built in. Everything else comes from `config/sources.json`,
+which `research source enable` writes. The file is read on demand, so a malformed
+file produces one clean error instead of failing at import.
+"""
+
 from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TypedDict
+from typing import Annotated, Literal, Self
 
-from .layout import find_repo_root
+from pydantic import Field, ValidationError, model_validator
 
-_READ_ONLY_POLICY = (
-    "All sources are strictly read-only. "
-    "Search, query, and retrieve only — never send messages, create or update issues, "
-    "modify data, post comments, or alter any external system."
+from .io import read_text
+from .strict_model import StrictModel
+
+USER_SOURCES_FILE = "config/sources.json"
+LOCAL_FAMILY = "local"
+NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+Text = Annotated[str, Field(min_length=1)]
+Transport = Literal["http-oauth", "stdio", "cli", "native"]
+Client = Literal["claude", "cursor", "codex"]
+Category = Literal[
+    "built-in",
+    "work-context",
+    "warehouse",
+    "product-analytics",
+    "observability-revenue",
+]
+# Config can prove the first four. The last three live outside any file this repo
+# can read, so `research doctor` reports them as declared, not checked.
+Mechanism = Literal[
+    "url_suffix",
+    "server_flag",
+    "arg_absent",
+    "statement_allowlist",
+    "credential_scope",
+    "credential",
+    "native",
+]
+CONFIG_CHECKED: frozenset[Mechanism] = frozenset(
+    {"url_suffix", "server_flag", "arg_absent", "statement_allowlist"}
 )
 
-# Where users register their own sources without editing this file. See
-# config/sources.json.example for the shape.
-USER_SOURCES_FILE = "config/sources.json"
+
+class SourceConfigError(ValueError):
+    """Raised when `config/sources.json` or a bundle file is malformed."""
 
 
-class SourceSpec(TypedDict):
-    key: str
-    hint_field: str
-    label: str
-    display_label: str
-    freshness_caveat_group: str
-    transport: str
-    read_only_mechanism: str
-    plan_line: str
-    base_notes: str
+class ReadOnlyControl(StrictModel):
+    """The control that keeps a source read-only, from a closed set of mechanisms."""
+
+    mechanism: Mechanism
+    detail: Text
 
 
-# Transports a source uses to reach its system. "native" = a built-in agent tool
-# (e.g. web search); "cli" = a `research <x>` subcommand; "stdio" / "http-oauth"
-# = an MCP server.
-VALID_TRANSPORTS: frozenset[str] = frozenset({"http-oauth", "stdio", "cli", "native"})
-
-# read_only_mechanism taxonomy. A "config" mechanism names a token that must be
-# present (or, for arg-absent, absent) in the shipped MCP config and is checked
-# mechanically. A "documented" mechanism is enforced outside the MCP args — an
-# OAuth scope, a credential/grant, a SQL statement allowlist, or a native
-# read-only tool — and must instead be covered by setup notes.
-_CONFIG_PRESENT_PREFIXES = ("url-suffix:", "server-flag:", "tool-allowlist:")
-_CONFIG_ABSENT_PREFIXES = ("arg-absent:",)
-_DOCUMENTED_PREFIXES = ("scope:",)
-_DOCUMENTED_BARE = frozenset({"statement-allowlist", "credential-only", "native"})
+class SourceSpec(StrictModel):
+    display_name: Text
+    category: Category
+    transport: Transport
+    read_only_control: ReadOnlyControl
+    plan_line: Text
+    notes: Text
+    sql_backed: bool = False
 
 
-@dataclass(frozen=True)
-class ReadOnlyMechanism:
-    """A parsed ``read_only_mechanism``.
-
-    ``family`` is "config" (the token must be present/absent in the shipped MCP
-    config) or "documented" (read-only is enforced outside the MCP args and must
-    be described in setup notes).
-    """
-
-    raw: str
-    family: str
-    token: str
-    expect_present: bool
+class OAuthClient(StrictModel):
+    client_id: Text
+    callback_port: int
 
 
-def classify_read_only_mechanism(value: str) -> ReadOnlyMechanism | None:
-    """Parse a read_only_mechanism string, or return None if it is unrecognized.
+class ServerDefinition(StrictModel):
+    """One MCP server. Client config shapes are generated from it."""
 
-    Used by source validation (to reject unknown mechanisms) and by the read-only
-    contract test (to check the shipped config or setup notes).
-    """
-    text = value.strip()
-    if not text:
-        return None
-    for prefix in _CONFIG_PRESENT_PREFIXES:
-        if text.startswith(prefix):
-            token = text[len(prefix) :].strip()
-            return ReadOnlyMechanism(text, "config", token, True) if token else None
-    for prefix in _CONFIG_ABSENT_PREFIXES:
-        if text.startswith(prefix):
-            token = text[len(prefix) :].strip()
-            return ReadOnlyMechanism(text, "config", token, False) if token else None
-    for prefix in _DOCUMENTED_PREFIXES:
-        if text.startswith(prefix):
-            token = text[len(prefix) :].strip()
-            return ReadOnlyMechanism(text, "documented", token, True) if token else None
-    if text in _DOCUMENTED_BARE:
-        return ReadOnlyMechanism(text, "documented", "", True)
-    return None
+    server_name: Annotated[str, Field(pattern=NAME_PATTERN.pattern)]
+    url: Text | None = None
+    command: Text | None = None
+    args: list[str] = Field(default_factory=list[str])
+    oauth: OAuthClient | None = None
+    write_tools: list[Text] = Field(default_factory=list[str])
+    support_files: list[Text] = Field(default_factory=list[str])
+    placeholders: list[Text] = Field(default_factory=list[str])
+
+    @model_validator(mode="after")
+    def one_transport(self) -> Self:
+        if (self.url is None) == (self.command is None):
+            raise ValueError("define exactly one of url or command")
+        return self
 
 
-_BUILTIN_SOURCES: dict[str, SourceSpec] = {
-    "web-search": {
-        "key": "web_search",
-        "transport": "native",
-        "read_only_mechanism": "native",
-        "hint_field": "focus",
-        "label": "Web focus",
-        "display_label": "web",
-        "freshness_caveat_group": "web",
-        "plan_line": "Web tools for external context and public changes.",
-        "base_notes": "Search for external context, public incidents, competitor moves, and platform changes. Read-only.",
-    },
+class Wiring(StrictModel):
+    """What the engine added to client files for one source, so disable removes only it."""
+
+    server_name: Text
+    clients: list[Client]
+    claude_deny: list[str] = Field(default_factory=list[str])
+    cursor_deny: list[str] = Field(default_factory=list[str])
+
+
+class SourcesFile(StrictModel):
+    sources: dict[str, SourceSpec]
+    wiring: dict[str, Wiring] = Field(default_factory=dict[str, Wiring])
+
+
+WEB_SEARCH = "web-search"
+BUILTIN_SOURCES = {
+    WEB_SEARCH: SourceSpec(
+        display_name="Web",
+        category="built-in",
+        transport="native",
+        read_only_control=ReadOnlyControl(
+            mechanism="native", detail="built-in read-only search tool"
+        ),
+        plan_line="Web tools for external context and public changes.",
+        notes="Search for external context, public incidents, competitor moves, and platform changes. Read-only.",
+    ),
 }
 
-# The live registry: built-ins plus anything registered at runtime or loaded
-# from config/sources.json. Extend it via register_source() or that file rather
-# than editing the built-ins above.
-SOURCE_CONFIGS: dict[str, SourceSpec] = dict(_BUILTIN_SOURCES)
 
-_REQUIRED_SPEC_KEYS: frozenset[str] = frozenset(SourceSpec.__annotations__)
-
-
-def _validate_source_spec(name: str, spec: object) -> SourceSpec:
-    if not isinstance(spec, dict):
-        raise ValueError(
-            f"Source {name!r} must be an object, got {type(spec).__name__}."
-        )
-    missing = _REQUIRED_SPEC_KEYS - spec.keys()
-    if missing:
-        raise ValueError(
-            f"Source {name!r} is missing required field(s): {', '.join(sorted(missing))}."
-        )
-    extra = spec.keys() - _REQUIRED_SPEC_KEYS
-    if extra:
-        raise ValueError(
-            f"Source {name!r} has unknown field(s): {', '.join(sorted(extra))}."
-        )
-    for field, value in spec.items():
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError(
-                f"Source {name!r} field {field!r} must be a non-empty string."
-            )
-    transport = str(spec["transport"])
-    if transport not in VALID_TRANSPORTS:
-        raise ValueError(
-            f"Source {name!r} has unknown transport {transport!r}. "
-            f"Valid transports: {', '.join(sorted(VALID_TRANSPORTS))}."
-        )
-    if classify_read_only_mechanism(str(spec["read_only_mechanism"])) is None:
-        raise ValueError(
-            f"Source {name!r} has an unrecognized read_only_mechanism "
-            f"{spec['read_only_mechanism']!r}."
-        )
-    return spec  # type: ignore[return-value]
-
-
-# Source names must yield a usable ``--<name>-hint`` / ``--no-<name>`` CLI flag,
-# so they share the bundle-name charset (lowercase, digits, '-'/'_').
-_SOURCE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
-
-
-def register_source(name: str, spec: SourceSpec, *, override: bool = False) -> None:
-    """Add a source to the registry. Raises on collision unless override=True."""
-    if not _SOURCE_NAME_RE.match(name):
-        raise ValueError(
-            f"Source name {name!r} must match {_SOURCE_NAME_RE.pattern} "
-            "(lowercase letters/digits, '-' or '_', starting alphanumeric)."
-        )
-    if name in SOURCE_CONFIGS and not override:
-        raise ValueError(
-            f"Source {name!r} already exists. Pass override=True to replace it."
-        )
-    validated = _validate_source_spec(name, spec)
-    new_key = validated["key"]
-    for other, other_spec in SOURCE_CONFIGS.items():
-        if other != name and other_spec["key"] == new_key:
-            raise ValueError(
-                f"Source {name!r} reuses key {new_key!r} already claimed by source "
-                f"{other!r}; each source needs a unique key."
-            )
-    SOURCE_CONFIGS[name] = validated
-
-
-def _load_user_sources() -> None:
-    """Merge user-defined sources from config/sources.json, if present."""
+def _parse_document(text: str, label: str) -> SourcesFile:
     try:
-        repo_root = find_repo_root()
-    except FileNotFoundError:
-        return
-    path = repo_root / USER_SOURCES_FILE
+        parsed = SourcesFile.model_validate_json(text)
+    except ValidationError as exc:
+        problems = "; ".join(
+            ": ".join(filter(None, (".".join(map(str, error["loc"])), error["msg"])))
+            for error in exc.errors(include_url=False, include_input=False)
+        )
+        raise SourceConfigError(f"{label} is invalid: {problems}") from exc
+    for name in parsed.sources:
+        if not NAME_PATTERN.match(name):
+            raise SourceConfigError(
+                f"{label}: source name {name!r} must use lowercase letters, digits, "
+                "'-' or '_', and start with a letter or digit."
+            )
+    return parsed
+
+
+def parse_sources_file(text: str, label: str) -> dict[str, SourceSpec]:
+    """Parse a `{"sources": {name: spec}}` document, naming `label` in any error."""
+    return _parse_document(text, label).sources
+
+
+def user_sources_path(repo_root: Path) -> Path:
+    return repo_root / USER_SOURCES_FILE
+
+
+def load_sources_file(repo_root: Path) -> SourcesFile:
+    path = user_sources_path(repo_root)
     if not path.exists():
-        return
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{USER_SOURCES_FILE} is not valid JSON: {exc}") from exc
-    sources = payload.get("sources", payload) if isinstance(payload, dict) else None
-    if not isinstance(sources, dict):
-        raise ValueError(
-            f"{USER_SOURCES_FILE} must be an object mapping source names to specs "
-            f'(optionally under a top-level "sources" key).'
-        )
-    for name, spec in sources.items():
-        if name in _BUILTIN_SOURCES:
-            raise ValueError(
+        return SourcesFile(sources={})
+    document = _parse_document(read_text(path), USER_SOURCES_FILE)
+    for name in document.sources:
+        if name in BUILTIN_SOURCES:
+            raise SourceConfigError(
                 f"{USER_SOURCES_FILE} redefines built-in source {name!r}; "
                 "choose a different name."
             )
-        register_source(name, _validate_source_spec(name, spec))
+    return document
 
 
-_load_user_sources()
-
-VALID_SOURCES: frozenset[str] = frozenset(SOURCE_CONFIGS)
-
-
-def build_sources_config(
-    *,
-    enabled: dict[str, bool] | None = None,
-    hints: dict[str, str] | None = None,
-    local_context_paths: list[str] | None = None,
-    local_only: bool = False,
-) -> dict:
-    enabled = enabled or {}
-    hints = hints or {}
-
-    for name in enabled:
-        if name not in SOURCE_CONFIGS:
-            raise ValueError(
-                f"Unknown source {name!r} in enabled. "
-                f"Valid sources: {', '.join(sorted(SOURCE_CONFIGS))}"
-            )
-
-    config: dict = {
-        "read_only_policy": _READ_ONLY_POLICY,
-    }
-
-    for name, spec in SOURCE_CONFIGS.items():
-        # local_only forces every registered (external) source off, leaving only
-        # the local context folders below.
-        is_enabled = False if local_only else enabled.get(name, True)
-        hint = hints.get(name, "")
-        entry = {spec["hint_field"]: hint, "notes": spec["base_notes"]}
-        entry["enabled"] = is_enabled
-        config[spec["key"]] = entry
-
-    config["local_context_folders"] = [
-        _local_context_entry(path) for path in (local_context_paths or [])
-    ]
-
-    return config
+def render_sources_file(document: SourcesFile) -> str:
+    return (
+        json.dumps(
+            document.model_dump(exclude_defaults=True), indent=2, ensure_ascii=False
+        )
+        + "\n"
+    )
 
 
-def _local_context_entry(path: str) -> dict[str, str]:
-    resolved = _resolve_local_context_path(path)
-    return {
-        "path": str(resolved),
-        "notes": _local_context_notes(resolved),
-    }
+def load_registry(repo_root: Path) -> dict[str, SourceSpec]:
+    return {**BUILTIN_SOURCES, **load_sources_file(repo_root).sources}
 
 
-def _resolve_local_context_path(path: str) -> Path:
-    resolved = Path(path).expanduser().resolve()
-    if not resolved.exists() or not (resolved.is_file() or resolved.is_dir()):
-        raise FileNotFoundError(f"Local context path does not exist: {resolved}")
-    return resolved
-
-
-_SENSITIVE_PATH_PARTS = frozenset(
-    {
-        ".aws",
-        ".azure",
-        ".config",
-        ".docker",
-        ".gnupg",
-        ".kube",
-        ".ssh",
-        "Library",
-    }
+SENSITIVE_PATH_PARTS = frozenset(
+    {".aws", ".azure", ".config", ".docker", ".gnupg", ".kube", ".ssh", "Library"}
 )
 
 
-def _local_context_notes(path: Path) -> str:
-    notes = "Search and read local context files. Read-only."
-    home = Path.home().resolve()
-    if path == Path(path.anchor) or path == home:
-        return (
-            notes + " Broad path attached intentionally; avoid unrelated private files."
+def _local_context_lines(raw_path: str) -> list[str]:
+    path = Path(raw_path).expanduser().resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"Local context path does not exist: {path}")
+    lines = [f"Local context folder: {path}"]
+    if path in (Path(path.anchor), Path.home().resolve()):
+        lines.append(
+            "Local context note: Broad path attached intentionally; avoid unrelated private files."
         )
-    if any(part in _SENSITIVE_PATH_PARTS for part in path.parts):
-        return (
-            notes + " Sensitive-looking path attached; avoid secrets and credentials."
+    elif SENSITIVE_PATH_PARTS.intersection(path.parts):
+        lines.append(
+            "Local context note: Sensitive-looking path attached; avoid secrets and credentials."
         )
-    return notes
-
-
-def _enabled_source_sections(config: dict) -> list[tuple[SourceSpec, dict]]:
-    sections: list[tuple[SourceSpec, dict]] = []
-    for spec in SOURCE_CONFIGS.values():
-        section = config.get(spec["key"], {})
-        if section.get("enabled", True):
-            sections.append((spec, section))
-    return sections
-
-
-def _source_hint_lines(enabled_sections: list[tuple[SourceSpec, dict]]) -> list[str]:
-    lines: list[str] = []
-    for spec, section in enabled_sections:
-        value = str(section.get(spec["hint_field"], "")).strip()
-        if value:
-            lines.append(f"{spec['label']}: {value}")
     return lines
 
 
-def _local_context_lines(config: dict) -> list[str]:
-    lines: list[str] = []
-    for entry in config.get("local_context_folders", []):
-        path = str(entry.get("path", "")).strip()
-        if path:
-            lines.append(f"Local context folder: {path}")
-        notes = str(entry.get("notes", "")).strip()
-        if notes and notes != "Search and read local context files. Read-only.":
-            lines.append(f"Local context note: {notes}")
-    return lines
-
-
-def source_constraint_lines(config: dict) -> list[str]:
+def source_constraints(
+    registry: dict[str, SourceSpec],
+    names: list[str],
+    *,
+    hints: dict[str, str] | None = None,
+    local_context_paths: list[str] | None = None,
+) -> list[str]:
     """Render the sources a case may use, one per line.
 
-    The read-only policy is deliberately not repeated here — the brief and the
-    goal contract each state it in their own prose, and a third copy inside the
-    source list just pads the contract.
+    The read-only policy is not repeated here. The brief and the goal contract each
+    state it in their own prose.
     """
-    enabled_sections = _enabled_source_sections(config)
-    return [
-        *[spec["plan_line"] for spec, _ in enabled_sections],
-        *_source_hint_lines(enabled_sections),
-        *_local_context_lines(config),
+    hints = hints or {}
+    unknown = sorted(set(names) - registry.keys())
+    if unknown:
+        raise ValueError(
+            f"Unknown source: {', '.join(unknown)}. "
+            f"Valid sources: {', '.join(sorted(registry))}"
+        )
+    unused_hints = sorted(set(hints) - set(names))
+    if unused_hints:
+        raise ValueError(
+            "Source hints require the source to be allowed: " + ", ".join(unused_hints)
+        )
+    plan_lines = [registry[name].plan_line for name in names]
+    hint_lines = [
+        f"{registry[name].display_name} focus: {hints[name]}"
+        for name in names
+        if name in hints
     ]
+    local_lines = [
+        line
+        for path in local_context_paths or []
+        for line in _local_context_lines(path)
+    ]
+    return [*plan_lines, *hint_lines, *local_lines]

@@ -1,0 +1,11 @@
+id: no-dynamic-import
+language: python
+severity: error
+message: No __import__. It hides imports from the ruff banned-api list in pyproject.toml.
+files:
+  - src/**/*.py
+  - scripts/**/*.py
+  - evals/**/*.py
+rule:
+  kind: call
+  has: {field: function, regex: ^(__import__|builtins\.__import__)$}

@@ -1,0 +1,10 @@
+{
+  "server_name": "microsoft-365",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@softeria/ms-365-mcp-server",
+    "--read-only",
+    "--org-mode"
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "server_name": "redshift",
+  "command": "uvx",
+  "args": [
+    "awslabs.redshift-mcp-server@latest"
+  ]
+}

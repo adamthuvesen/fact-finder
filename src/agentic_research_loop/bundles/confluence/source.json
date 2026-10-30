@@ -1,0 +1,15 @@
+{
+  "sources": {
+    "confluence": {
+      "display_name": "Confluence",
+      "category": "work-context",
+      "transport": "http-oauth",
+      "read_only_control": {
+        "mechanism": "credential",
+        "detail": "account you connect"
+      },
+      "plan_line": "Confluence for wiki spaces, pages, and curated internal documentation.",
+      "notes": "Search Confluence spaces and pages (CQL search), read page content, history, and comments via the Atlassian remote MCP server. Good for curated docs, runbooks, RFCs, and decision records. Read-only is enforced by a view-only Atlassian account (see SETUP.md) — the server itself has no read-only flag; never create, edit, or comment on pages."
+    }
+  }
+}

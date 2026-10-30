@@ -19,19 +19,45 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["google-auth[requests]>=2.20"]
+dependencies = [
+    "google-auth[requests]>=2.20",
+    "pydantic>=2.14.2",
+    "pyyaml>=6.0.3",
+    "sqlglot>=30.29.0",
+    "tomlkit>=0.15.2",
+]
 
 [dependency-groups]
-dev = ["actionlint-py>=1.7.12.25", "ast-grep-cli>=0.51.1", "basedpyright>=1.40.2", "deptry>=0.25.1", "import-linter>=2.15", "pip-audit>=2.10.1", "pre-commit>=4.0.0", "pytest>=8.2", "pytest-cov>=7.1.0", "ruff>=0.9", "vulture>=2.16", "zizmor>=1.32.0"]
+dev = [
+    "actionlint-py>=1.7.12.25",
+    "ast-grep-cli>=0.51.1",
+    "basedpyright>=1.40.2",
+    "deptry>=0.25.1",
+    "import-linter>=2.15",
+    "markdown-it-py>=4.2.0",
+    "pip-audit>=2.10.1",
+    "pre-commit>=4.0.0",
+    "pytest>=8.2",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.9",
+    "types-pyyaml>=6.0.12.20261103",
+    "vulture>=2.16",
+    "zizmor>=1.32.0",
+]
 
 [project.scripts]
-research = "agentic_research_loop.cli:_entry"
+research = "agentic_research_loop.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agentic_research_loop"]
+
+[tool.ruff]
+extend-exclude = ["vulture_whitelist.py"]
+# The verify driver is a Python script with no file extension.
+extend-include = [".agents/skills/*/verify"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "S", "BLE", "TRY", "PTH", "TID", "ANN", "PL", "RUF", "C4", "DTZ", "T20", "ARG", "ERA", "PERF", "FBT", "SLF", "RET", "PGH"]
@@ -41,30 +67,48 @@ ignore = [
     "PLR2004",
     "PLR0913",
     "ANN401",
-    # Ratchet: existing findings. Remove each code once its findings are gone.
-    "B011",
-    "DTZ011",
-    "ERA001",
-    "FBT003",
-    "PLC0415",
-    "PLR0912",
-    "PLR0915",
-    "PLW0603",
-    "PTH105",
-    "PTH108",
-    "PTH201",
-    "RUF005",
-    "S105",
-    "S310",
-    "S603",
-    "SIM105",
-    "SIM117",
-    "T201",
-    "TRY004",
 ]
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"anthropic".msg = "No agent SDK. The native goal owns execution."
+"claude_agent_sdk".msg = "No agent SDK. The native goal owns execution."
+"claude_code_sdk".msg = "No agent SDK. The native goal owns execution."
+"codex".msg = "No agent SDK. The native goal owns execution."
+"openai".msg = "No agent SDK. The native goal owns execution."
+"openai_agents".msg = "No agent SDK. The native goal owns execution."
+"subprocess".msg = "No process spawn. That is how an agent runner starts."
+"multiprocessing".msg = "No process spawn. That is how an agent runner starts."
+"pty".msg = "No process spawn. That is how an agent runner starts."
+"asyncio.create_subprocess_exec".msg = "No process spawn. That is how an agent runner starts."
+"asyncio.create_subprocess_shell".msg = "No process spawn. That is how an agent runner starts."
+"os.system".msg = "No process spawn. That is how an agent runner starts."
+"os.popen".msg = "No process spawn. That is how an agent runner starts."
+"os.fork".msg = "No process spawn. That is how an agent runner starts."
+"os.forkpty".msg = "No process spawn. That is how an agent runner starts."
+"os.posix_spawn".msg = "No process spawn. That is how an agent runner starts."
+"os.posix_spawnp".msg = "No process spawn. That is how an agent runner starts."
+"os.spawnl".msg = "No process spawn. That is how an agent runner starts."
+"os.spawnle".msg = "No process spawn. That is how an agent runner starts."
+"os.spawnlp".msg = "No process spawn. That is how an agent runner starts."
+"os.spawnv".msg = "No process spawn. That is how an agent runner starts."
+"os.spawnve".msg = "No process spawn. That is how an agent runner starts."
+"os.spawnvp".msg = "No process spawn. That is how an agent runner starts."
+"os.execl".msg = "No process spawn. That is how an agent runner starts."
+"os.execv".msg = "No process spawn. That is how an agent runner starts."
+"os.execve".msg = "No process spawn. That is how an agent runner starts."
+"os.execvp".msg = "No process spawn. That is how an agent runner starts."
+"importlib.import_module".msg = "No dynamic import. It hides the bans above."
+"pydantic.BaseModel".msg = "Subclass strict_model.StrictModel, which forbids extra fields."
+
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S603", "S607", "ANN", "ARG", "PLC0415", "SLF001", "FBT", "T20", "TRY", "PTH123"]
+# The CLI's job is to print.
+"src/agentic_research_loop/cli.py" = ["T201"]
+# The verify driver runs the real CLI and prints its evidence path.
+".agents/skills/*/verify" = ["S603", "S607", "TID251", "T20", "FBT"]
+# This script probes installed clients on purpose, with fixed arguments.
+"scripts/check_agent_setup.py" = ["S603", "TID251"]
+"src/agentic_research_loop/strict_model.py" = ["TID251"]
+"tests/**" = ["S101", "S603", "S607", "ANN", "ARG", "PLC0415", "SLF001", "FBT", "T20", "TRY", "PTH123", "S105", "S108", "TID251"]
 
 [tool.basedpyright]
 pythonVersion = "3.13"
@@ -73,15 +117,40 @@ venvPath = "."
 venv = ".venv"
 failOnWarnings = false
 strict = ["src"]
-exclude = ["**/.venv", "**/__pycache__", "research", "evals", "examples"]
+exclude = ["**/.venv", "**/__pycache__", "research", "evals", "examples", "vulture_whitelist.py"]
 
 [tool.vulture]
-paths = ["src"]
-min_confidence = 80
-ignore_names = ["cls"]
+paths = ["src", "scripts", "vulture_whitelist.py"]
+min_confidence = 60
+ignore_names = ["cls", "model_config"]
+ignore_decorators = ["@field_validator", "@model_validator"]
 
 [tool.deptry]
 extend_exclude = ["experiments", "examples", "evals", "bench"]
+known_first_party = ["agentic_research_loop"]
 
 [tool.coverage.run]
 source = ["agentic_research_loop"]
+
+[tool.coverage.report]
+precision = 2
+
+[tool.importlinter]
+root_package = "agentic_research_loop"
+
+[[tool.importlinter.contracts]]
+name = "cli above domain above I/O; nothing imports cli"
+type = "layers"
+containers = ["agentic_research_loop"]
+exhaustive = true
+layers = [
+    "__main__",
+    "cli",
+    "research | validation | repo_setup | doctor | source_catalog",
+    "source_bundles",
+    "evidence | client_configs | templates | from_spec",
+    "sources | readonly_sql",
+    "strict_model",
+    "layout",
+    "io | google_api",
+]

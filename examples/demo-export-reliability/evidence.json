@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "id": "S1",
+      "family": "local",
+      "route": "read local CSV",
+      "locator": "examples/local-sources/exports_weekly.csv",
+      "accessed_at": "2026-08-17T09:00:00Z",
+      "independence_group": "weekly-export-aggregate",
+      "artifact": "evidence/windows.json",
+      "sha256": "a7664d52e40a28e0a131390bff664db6a52c2d63c2bb6dfd0a1bafb837b5e335"
+    },
+    {
+      "id": "S2",
+      "family": "local",
+      "route": "read local notes",
+      "locator": "examples/local-sources/context/change-log.md",
+      "accessed_at": "2026-08-17T09:00:00Z",
+      "independence_group": "operational-notes",
+      "artifact": "evidence/change-log.md",
+      "sha256": "e697db7179f9b3a107da4a9aaac78755d59183948c563f5595799d760d087aa3"
+    }
+  ],
+  "coverage": [
+    {
+      "family": "local",
+      "status": "used",
+      "reason": "The case allows only the bundled local files.",
+      "consequence": "There is no per-job or per-tenant cut, and no live system cross-check."
+    }
+  ],
+  "claims": [
+    {
+      "id": "C1",
+      "statement": "Success rate fell from 98.0% to 84.0% at the week of 2026-03-09.",
+      "kind": "descriptive",
+      "source_ids": [
+        "S1"
+      ],
+      "calculation_ids": [
+        "R1",
+        "R2",
+        "T1",
+        "T2"
+      ],
+      "limitations": [
+        "Static weekly aggregate with no per-job detail."
+      ],
+      "status": "supported",
+      "report_marker": "[C1]"
+    },
+    {
+      "id": "C2",
+      "statement": "Scheduled volume per week rose only about 2% between the windows.",
+      "kind": "descriptive",
+      "source_ids": [
+        "S1"
+      ],
+      "calculation_ids": [],
+      "limitations": [
+        "Weekly means hide within-week peaks."
+      ],
+      "status": "supported",
+      "report_marker": "[C2]"
+    },
+    {
+      "id": "C3",
+      "statement": "Average queue wait rose from 8.0 to 42.0 minutes in the same week.",
+      "kind": "descriptive",
+      "source_ids": [
+        "S1"
+      ],
+      "calculation_ids": [],
+      "limitations": [
+        "A weekly mean, not a peak measure."
+      ],
+      "status": "supported",
+      "report_marker": "[C3]"
+    },
+    {
+      "id": "C4",
+      "statement": "The scheduler change that moved heavy exports into business hours caused the loss through queue contention.",
+      "kind": "causal",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "calculation_ids": [],
+      "limitations": [
+        "Timing and mechanism come from one aggregate file and one operational note, not an audited config diff or a controlled comparison."
+      ],
+      "status": "supported",
+      "report_marker": "[C4]"
+    }
+  ],
+  "calculations": [
+    {
+      "id": "R1",
+      "operation": "ratio",
+      "inputs": [
+        {
+          "name": "succeeded",
+          "value": "44090",
+          "unit": "jobs",
+          "source_id": "S1"
+        },
+        {
+          "name": "scheduled",
+          "value": "44990",
+          "unit": "jobs",
+          "source_id": "S1"
+        }
+      ],
+      "result": "0.98",
+      "unit": "ratio",
+      "tolerance": "0.0005",
+      "denominator": "scheduled"
+    },
+    {
+      "id": "R2",
+      "operation": "ratio",
+      "inputs": [
+        {
+          "name": "succeeded",
+          "value": "21420",
+          "unit": "jobs",
+          "source_id": "S1"
+        },
+        {
+          "name": "scheduled",
+          "value": "25500",
+          "unit": "jobs",
+          "source_id": "S1"
+        }
+      ],
+      "result": "0.84",
+      "unit": "ratio",
+      "tolerance": "0",
+      "denominator": "scheduled"
+    },
+    {
+      "id": "T1",
+      "operation": "sum",
+      "inputs": [
+        {
+          "name": "succeeded",
+          "value": "44090",
+          "unit": "jobs",
+          "source_id": "S1"
+        },
+        {
+          "name": "failed",
+          "value": "900",
+          "unit": "jobs",
+          "source_id": "S1"
+        }
+      ],
+      "result": "44990",
+      "unit": "jobs",
+      "tolerance": "0"
+    },
+    {
+      "id": "T2",
+      "operation": "sum",
+      "inputs": [
+        {
+          "name": "succeeded",
+          "value": "21420",
+          "unit": "jobs",
+          "source_id": "S1"
+        },
+        {
+          "name": "failed",
+          "value": "4080",
+          "unit": "jobs",
+          "source_id": "S1"
+        }
+      ],
+      "result": "25500",
+      "unit": "jobs",
+      "tolerance": "0"
+    }
+  ]
+}

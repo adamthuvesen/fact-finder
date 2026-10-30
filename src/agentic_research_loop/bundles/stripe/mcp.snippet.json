@@ -1,0 +1,15 @@
+{
+  "server_name": "stripe",
+  "command": "npx",
+  "args": [
+    "-y",
+    "@stripe/mcp",
+    "--tools=all"
+  ],
+  "write_tools": [
+    "create_refund",
+    "cancel_subscription",
+    "create_invoice",
+    "create_payment_link"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "sources": {
+    "redshift": {
+      "display_name": "Redshift",
+      "category": "warehouse",
+      "transport": "stdio",
+      "read_only_control": {
+        "mechanism": "native",
+        "detail": "BEGIN READ ONLY"
+      },
+      "plan_line": "Redshift for warehouse metrics — schema discovery and read-only SQL over clusters and serverless.",
+      "notes": "Discover databases, schemas, tables, and columns and run read-only SQL over Redshift clusters and serverless workgroups via the official AWS Labs Redshift MCP server (Data API). Read-only is engine-enforced: every query runs inside a BEGIN READ ONLY transaction and the server exposes no write tools. Discover objects live before querying; SELECT-only. Pair with a read-only IAM role + DB user (see SETUP.md) so a future read-write mode can't flip on.",
+      "sql_backed": true
+    }
+  }
+}

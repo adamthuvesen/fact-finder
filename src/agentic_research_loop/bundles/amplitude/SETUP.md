@@ -1,0 +1,32 @@
+# Amplitude (read-only - credential-enforced, read-AND-write server)
+
+**Server:** official Amplitude MCP server - hosted, OAuth. US endpoint
+`https://mcp.amplitude.com/mcp` (EU: `https://mcp.eu.amplitude.com/mcp`).
+
+**Warning - this server is read+write.** It exposes `create_chart`,
+`create_dashboard`, `create_cohort`, `create_metric`, **`create_experiment`, and
+`create_feature_flag`** - the last two can change live product behavior. There is
+**no read-only flag**. A goal left running unattended will not stop to ask before
+calling one of these, so **the connected account's role is the only guardrail.**
+
+**Read-only enforcement (`credential-only`):**
+
+- Connect a **dedicated Amplitude account with the Viewer role** (the most
+  restricted). Viewer blocks most writes at the API layer.
+- **Verify before autonomous use:** Amplitude's docs do not confirm whether Viewer
+  blocks `create_experiment` / `create_feature_flag`. Attempt one such call with the
+  Viewer account and confirm it returns a permission error (403) before enabling this
+  source in an autonomous loop.
+- Authenticate via OAuth (`/mcp` in Claude, Settings → MCP in Cursor) as that account.
+
+## Enable
+
+1. `uv run research source enable amplitude`.
+3. Connect the dedicated Viewer account and complete the 403 check above.
+
+## Notes
+
+- Covers charts, dashboards, funnels, retention, metrics, cohorts, experiments,
+  feature-flag reads, and session replay.
+- For a *provably* read-only product-analytics source, prefer the **PostHog** bundle
+  (a read-scoped API key the server cannot write past).

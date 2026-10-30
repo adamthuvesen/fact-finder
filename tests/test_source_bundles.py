@@ -1,44 +1,52 @@
-"""Tests for `research source enable/disable/list`."""
+"""Tests for `research source enable/disable/list` and the generated client configs."""
 
 from __future__ import annotations
 
 import json
 import tomllib
+from unittest.mock import patch
 
 import pytest
 
+from agentic_research_loop import client_configs as cc
+from agentic_research_loop import io as io_module
 from agentic_research_loop import source_bundles as sb
+from agentic_research_loop.sources import (
+    OAuthClient,
+    ServerDefinition,
+    SourceConfigError,
+)
 
-_SPEC = {
-    "key": "foo_mcp",
-    "hint_field": "focus",
-    "label": "Foo focus",
-    "display_label": "Foo",
-    "freshness_caveat_group": "docs",
+SPEC = {
+    "display_name": "Foo",
+    "category": "work-context",
     "transport": "http-oauth",
-    "read_only_mechanism": "credential-only",
+    "read_only_control": {"mechanism": "credential", "detail": "view-only account"},
     "plan_line": "Foo for things.",
-    "base_notes": "Search foo. Read-only.",
+    "notes": "Search foo. Read-only.",
+}
+SERVER = {
+    "server_name": "foo",
+    "url": "https://foo.example/mcp",
+    "write_tools": ["delete_thing"],
 }
 
-_SNIPPET = {
-    "server_name": "foo",
-    "read_only_mechanism": "credential-only",
-    "claude": {"foo": {"type": "http", "url": "https://foo.example/mcp"}},
-    "cursor": {"foo": {"url": "https://foo.example/mcp"}},
-    "codex_toml": '[mcp_servers.foo]\nurl = "https://foo.example/mcp"\nenabled = true',
-}
+
+def write_bundle(repo, name, spec, server=None):
+    bundle = repo / "examples" / "sources" / name
+    bundle.mkdir(parents=True)
+    (bundle / "source.json").write_text(json.dumps({"sources": {name: spec}}))
+    (bundle / "SETUP.md").write_text(
+        f"# {name} (read-only)\n{spec['read_only_control']['detail']}\n"
+    )
+    if server is not None:
+        (bundle / "mcp.snippet.json").write_text(json.dumps(server))
 
 
 @pytest.fixture()
 def repo(tmp_path):
-    """A fake repo with one `foo` bundle and neutral committed MCP configs."""
-    bundle = tmp_path / "examples" / "sources" / "foo"
-    bundle.mkdir(parents=True)
-    (bundle / "source.json").write_text(json.dumps({"sources": {"foo": _SPEC}}))
-    (bundle / "mcp.snippet.json").write_text(json.dumps(_SNIPPET))
-    (bundle / "SETUP.md").write_text("# Foo (read-only)\n")
-
+    """A fake repo with one `foo` bundle and an existing server in every client."""
+    write_bundle(tmp_path, "foo", SPEC, SERVER)
     (tmp_path / ".mcp.json").write_text(
         json.dumps({"mcpServers": {"existing": {"type": "http", "url": "x"}}})
     )
@@ -69,25 +77,74 @@ def _sources(repo):
     return json.loads((repo / "config" / "sources.json").read_text())["sources"]
 
 
-def test_enable_wires_registry_and_all_three_mcp_configs(repo):
+def _deny(repo, path):
+    return json.loads((repo / path).read_text())["permissions"]["deny"]
+
+
+def test_enable_generates_every_client_shape_from_one_definition(repo):
     sb.enable_bundle(repo, "foo")
 
-    assert "foo" in _sources(repo)
-    assert _sources(repo)["foo"] == _SPEC
-    # existing servers are preserved; foo is added everywhere
-    assert set(_claude(repo)) == {"existing", "foo"}
-    assert set(_cursor(repo)) == {"existing", "foo"}
-    assert set(_codex(repo)) == {"existing", "foo"}
+    assert _sources(repo)["foo"]["plan_line"] == "Foo for things."
+    assert _claude(repo)["foo"] == {"type": "http", "url": "https://foo.example/mcp"}
+    assert _cursor(repo)["foo"] == {"url": "https://foo.example/mcp"}
     assert _codex(repo)["foo"]["url"] == "https://foo.example/mcp"
+    assert _codex(repo)["foo"]["enabled"] is True
+    assert (
+        set(_claude(repo))
+        == set(_cursor(repo))
+        == set(_codex(repo))
+        == {"existing", "foo"}
+    )
+
+
+def test_enable_writes_deny_lists_for_known_write_tools(repo):
+    sb.enable_bundle(repo, "foo")
+
+    assert _deny(repo, ".claude/settings.json") == ["mcp__foo__delete_thing"]
+    assert _deny(repo, ".cursor/cli.json") == ["Mcp(foo:delete_thing)"]
+    assert _codex(repo)["foo"]["disabled_tools"] == ["delete_thing"]
+
+
+def test_deny_lists_keep_entries_this_tool_does_not_own(repo):
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"deny": ["Bash(rm:*)"]}, "model": "x"})
+    )
+
+    sb.enable_bundle(repo, "foo")
+    sb.disable_bundle(repo, "foo")
+
+    settings = json.loads((repo / ".claude" / "settings.json").read_text())
+    assert settings == {"permissions": {"deny": ["Bash(rm:*)"]}, "model": "x"}
+
+
+def test_stdio_and_oauth_shapes():
+    stdio = ServerDefinition(server_name="s", command="npx", args=["-y", "x"])
+    oauth = ServerDefinition(
+        server_name="o",
+        url="https://o.test",
+        oauth=OAuthClient(client_id="abc", callback_port=3118),
+    )
+
+    assert cc.claude_server(stdio) == {
+        "type": "stdio",
+        "command": "npx",
+        "args": ["-y", "x"],
+    }
+    assert cc.cursor_server(stdio) == cc.claude_server(stdio)
+    assert cc.codex_server(stdio)["args"] == ["-y", "x"]
+    assert cc.claude_server(oauth)["oauth"] == {"clientId": "abc", "callbackPort": 3118}
+    assert "oauth" not in cc.cursor_server(oauth)
 
 
 def test_enable_is_idempotent(repo):
     sb.enable_bundle(repo, "foo")
     sb.enable_bundle(repo, "foo")
-    # no duplicate codex block, single registry entry
+
     text = (repo / ".codex" / "config.toml").read_text()
     assert text.count("[mcp_servers.foo]") == 1
     assert list(_sources(repo)) == ["foo"]
+    assert _deny(repo, ".claude/settings.json") == ["mcp__foo__delete_thing"]
 
 
 def test_disable_reverses_enable(repo):
@@ -95,152 +152,255 @@ def test_disable_reverses_enable(repo):
     sb.disable_bundle(repo, "foo")
 
     assert "foo" not in _sources(repo)
-    assert set(_claude(repo)) == {"existing"}
-    assert set(_cursor(repo)) == {"existing"}
-    assert set(_codex(repo)) == {"existing"}
-    # the codex file remains valid TOML with the header preserved
+    assert set(_claude(repo)) == set(_cursor(repo)) == set(_codex(repo)) == {"existing"}
+    assert _deny(repo, ".claude/settings.json") == []
     assert "# header" in (repo / ".codex" / "config.toml").read_text()
 
 
-def test_list_reflects_enabled_state(repo):
-    rows = {r["name"]: r for r in sb.list_bundles(repo)}
-    assert rows["foo"]["enabled"] is False
+def test_disable_removes_a_servers_subtables(repo):
     sb.enable_bundle(repo, "foo")
-    rows = {r["name"]: r for r in sb.list_bundles(repo)}
-    assert rows["foo"]["enabled"] is True
-    assert rows["foo"]["read_only_mechanism"] == "credential-only"
+    path = repo / ".codex" / "config.toml"
+    path.write_text(path.read_text() + '\n[mcp_servers.foo.env]\nA = "1"\n')
+
+    sb.disable_bundle(repo, "foo")
+
+    assert set(tomllib.loads(path.read_text())["mcp_servers"]) == {"existing"}
+
+
+def _snapshot(repo):
+    return {str(path): path.read_bytes() for path in repo.rglob("*") if path.is_file()}
+
+
+@pytest.mark.parametrize(
+    ("path", "content"),
+    [
+        (".mcp.json", {"mcpServers": {"foo": {"type": "http", "url": "mine"}}}),
+        (".cursor/mcp.json", {"mcpServers": {"foo": {"url": "mine"}}}),
+    ],
+)
+def test_a_users_server_is_a_collision_that_changes_nothing(repo, path, content):
+    (repo / path).write_text(json.dumps(content))
+    before = _snapshot(repo)
+
+    with pytest.raises(SourceConfigError, match="was not added by research"):
+        sb.enable_bundle(repo, "foo")
+
+    assert _snapshot(repo) == before
+
+
+def test_a_users_codex_server_and_its_env_are_a_collision(repo):
+    path = repo / ".codex" / "config.toml"
+    path.write_text(
+        '[mcp_servers."foo"]\nurl = "mine"\n\n[mcp_servers.foo.env]\nA = "1"\n'
+    )
+    before = _snapshot(repo)
+
+    with pytest.raises(SourceConfigError, match="already exists"):
+        sb.enable_bundle(repo, "foo")
+
+    assert _snapshot(repo) == before
+
+
+def test_rewiring_keeps_user_values_and_restores_only_what_is_missing(repo):
+    sb.enable_bundle(repo, "foo")
+    claude = json.loads((repo / ".mcp.json").read_text())
+    claude["mcpServers"]["foo"]["headers"] = {"X": "mine"}
+    (repo / ".mcp.json").write_text(json.dumps(claude))
+    codex = repo / ".codex" / "config.toml"
+    codex.write_text(codex.read_text() + '\n[mcp_servers.foo.env]\nA = "1"\n')
+    cursor = json.loads((repo / ".cursor" / "mcp.json").read_text())
+    del cursor["mcpServers"]["foo"]
+    (repo / ".cursor" / "mcp.json").write_text(json.dumps(cursor))
+
+    sb.enable_bundle(repo, "foo")
+
+    assert _claude(repo)["foo"]["headers"] == {"X": "mine"}
+    assert _codex(repo)["foo"]["env"] == {"A": "1"}
+    assert _cursor(repo)["foo"] == {"url": "https://foo.example/mcp"}
+
+
+def test_disable_never_touches_a_server_it_did_not_add(repo):
+    before = _snapshot(repo)
+
+    assert sb.disable_bundle(repo, "foo") == []
+
+    assert _snapshot(repo) == before
+
+
+def test_a_deny_rule_the_user_already_had_survives_disable(repo):
+    (repo / ".claude").mkdir()
+    (repo / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"deny": ["mcp__foo__delete_thing"]}})
+    )
+
+    sb.enable_bundle(repo, "foo")
+    sb.disable_bundle(repo, "foo")
+
+    assert _deny(repo, ".claude/settings.json") == ["mcp__foo__delete_thing"]
+
+
+def test_a_failed_write_restores_every_file(repo):
+    """Sources are written first. If a client write fails, nothing stays half-enabled."""
+    before = _snapshot(repo)
+    real = io_module.write_text
+
+    def fail_on_cursor(path, content):
+        if path.name == "cli.json":
+            raise OSError("read-only")
+        real(path, content)
+
+    with (
+        patch.object(io_module, "write_text", fail_on_cursor),
+        pytest.raises(OSError, match="read-only"),
+    ):
+        sb.enable_bundle(repo, "foo")
+
+    assert _snapshot(repo) == before
+
+
+def test_read_only_config_dir_leaves_clients_untouched(repo):
+    (repo / "config").mkdir()
+    (repo / "config").chmod(0o500)
+    before = _snapshot(repo)
+    try:
+        with pytest.raises(OSError, match="ermission"):
+            sb.enable_bundle(repo, "foo")
+        assert _snapshot(repo) == before
+    finally:
+        (repo / "config").chmod(0o700)
+
+
+def test_a_symlinked_config_stays_a_symlink(repo, tmp_path_factory):
+    real = tmp_path_factory.mktemp("shared") / "mcp.json"
+    real.write_text(json.dumps({"mcpServers": {}}))
+    (repo / ".mcp.json").unlink()
+    (repo / ".mcp.json").symlink_to(real)
+
+    sb.enable_bundle(repo, "foo")
+
+    assert (repo / ".mcp.json").is_symlink()
+    assert "foo" in json.loads(real.read_text())["mcpServers"]
+
+
+@pytest.mark.parametrize(
+    ("source", "goals"),
+    [
+        ("[features]\ngoals = false\n", False),
+        ("[features] # keep this comment\nother = 1\n", True),
+        ('[mcp_servers."github"]\nurl = "x"\n', True),
+    ],
+)
+def test_codex_edits_always_leave_valid_toml(repo, source, goals):
+    path = repo / ".codex" / "config.toml"
+    path.write_text(source)
+
+    sb.enable_bundle(repo, "foo")
+
+    parsed = tomllib.loads(path.read_text())
+    assert parsed["features"]["goals"] is goals
+    assert "foo" in parsed["mcp_servers"]
+
+
+def test_invalid_toml_is_a_clean_error(repo):
+    (repo / ".codex" / "config.toml").write_text("[broken\n")
+
+    with pytest.raises(SourceConfigError, match="not valid TOML"):
+        sb.enable_bundle(repo, "foo")
+
+
+def test_malformed_config_aborts_before_any_write(repo):
+    (repo / ".cursor" / "mcp.json").write_text("{bad")
+
+    with pytest.raises(SourceConfigError, match="not a JSON object"):
+        sb.enable_bundle(repo, "foo")
+
+    assert not (repo / "config" / "sources.json").exists()
+    assert "foo" not in _claude(repo)
+
+
+def test_list_marks_enabled_bundles(repo):
+    assert "    foo" in sb.render_bundle_list(repo).replace("  * foo", "ENABLED")
+    sb.enable_bundle(repo, "foo")
+    assert "* foo" in sb.render_bundle_list(repo)
 
 
 def test_unknown_bundle_raises(repo):
-    with pytest.raises(sb.BundleError, match="No bundle"):
+    with pytest.raises(SourceConfigError, match="No bundle"):
         sb.enable_bundle(repo, "nope")
 
 
 def test_rejects_path_traversal(repo):
-    with pytest.raises(sb.BundleError, match="Invalid bundle name"):
+    with pytest.raises(SourceConfigError, match="Invalid bundle name"):
         sb.enable_bundle(repo, "../../etc")
 
 
-def test_enable_creates_sources_file_when_absent(repo):
-    assert not (repo / "config" / "sources.json").exists()
-    sb.enable_bundle(repo, "foo")
-    assert (repo / "config" / "sources.json").exists()
+def test_repo_bundle_wins_over_a_packaged_one(repo):
+    write_bundle(repo, "github", {**SPEC, "plan_line": "Local override."}, None)
+
+    assert sb.load_bundle(repo, "github").spec.plan_line == "Local override."
 
 
-_BARE_SPEC = {
-    "key": "bare_cli",
-    "hint_field": "focus",
-    "label": "Bare focus",
-    "display_label": "Bare",
-    "freshness_caveat_group": "live",
-    "transport": "cli",
-    "read_only_mechanism": "scope:example.readonly",
-    "plan_line": "Bare CLI source.",
-    "base_notes": "Query via the bare CLI. Read-only.",
-}
+def test_packaged_bundles_reach_a_repo_without_examples(tmp_path):
+    assert "github" in sb.available_bundles(tmp_path)
 
 
-def _add_mcpless_bundle(repo):
-    """A bundle with no mcp.snippet.json — a cli/native source like GSC."""
-    bundle = repo / "examples" / "sources" / "bare"
-    bundle.mkdir(parents=True)
-    (bundle / "source.json").write_text(json.dumps({"sources": {"bare": _BARE_SPEC}}))
-    (bundle / "SETUP.md").write_text("# Bare (read-only)\nEnforced by scope.\n")
+def test_bundle_must_define_its_own_source(repo):
+    write_bundle(repo, "bar", SPEC, None)
+    (repo / "examples" / "sources" / "bar" / "source.json").write_text(
+        json.dumps({"sources": {"baz": SPEC}})
+    )
+
+    with pytest.raises(SourceConfigError, match="exactly the source"):
+        sb.load_bundle(repo, "bar")
 
 
-def test_mcpless_bundle_enables_without_touching_mcp_configs(repo):
-    _add_mcpless_bundle(repo)
+def test_mcpless_bundle_enables_without_touching_servers(repo):
+    write_bundle(
+        repo,
+        "bare",
+        {
+            **SPEC,
+            "transport": "cli",
+            "read_only_control": {
+                "mechanism": "credential_scope",
+                "detail": "x.readonly",
+            },
+        },
+    )
+
     actions = sb.enable_bundle(repo, "bare")
-
-    assert _sources(repo)["bare"] == _BARE_SPEC
-    # the three MCP configs keep only their pre-existing server, untouched
+    assert "bare" in _sources(repo)
     assert set(_claude(repo)) == {"existing"}
-    assert set(_cursor(repo)) == {"existing"}
-    assert set(_codex(repo)) == {"existing"}
     assert not any("server" in action for action in actions)
 
-
-def test_mcpless_bundle_disable_removes_only_registry_entry(repo):
-    _add_mcpless_bundle(repo)
-    sb.enable_bundle(repo, "bare")
     sb.disable_bundle(repo, "bare")
-
     assert "bare" not in _sources(repo)
-    assert set(_codex(repo)) == {"existing"}
 
 
-def test_mcpless_bundle_listed_with_enabled_state(repo):
-    _add_mcpless_bundle(repo)
-    rows = {r["name"]: r for r in sb.list_bundles(repo)}
-    assert rows["bare"]["enabled"] is False
-    sb.enable_bundle(repo, "bare")
-    rows = {r["name"]: r for r in sb.list_bundles(repo)}
-    assert rows["bare"]["enabled"] is True
+def test_snowflake_allowlist_is_copied_and_kept(tmp_path):
+    sb.enable_bundle(tmp_path, "snowflake")
+    copy = tmp_path / "config" / "snowflake-mcp-tools.yaml"
+    assert "sql_statement_permissions" in copy.read_text()
+
+    copy.write_text("edited\n")
+    sb.enable_bundle(tmp_path, "snowflake")
+    assert copy.read_text() == "edited\n"
 
 
-def test_codex_goals_flag_survives_every_config_shape() -> None:
-    """Codex hides `/goal` behind this flag, and this file is never committed.
+def test_goals_flag_keeps_root_keys_and_other_features(repo):
+    path = repo / ".codex" / "config.toml"
+    path.write_text('model = "m"\n\n[features]\nother = true\n')
 
-    A bare prepended `[features]` table would declare the table twice when one
-    exists (unparseable) and would swallow any root-level keys that follow it.
-    """
-    import tomllib
+    sb.enable_bundle(repo, "foo")
 
-    from agentic_research_loop.source_bundles import ensure_codex_goals
-
-    shapes = {
-        "empty": "",
-        "features_table_present": "[features]\nweb_search_request = true\n",
-        "root_level_keys": 'model = "some-model"\napproval_policy = "on-request"\n',
-        "root_keys_then_table": 'model = "m"\n\n[mcp_servers.github]\nurl = "https://x.test"\n',
-        "no_trailing_newline": 'model = "m"',
-    }
-    for name, source in shapes.items():
-        parsed = tomllib.loads(ensure_codex_goals(source))
-        assert parsed["features"]["goals"] is True, name
-        for key, value in tomllib.loads(source).items():
-            if key == "features":
-                assert value.items() <= parsed["features"].items(), name
-            else:
-                assert parsed[key] == value, name
+    parsed = tomllib.loads(path.read_text())
+    assert parsed["model"] == "m"
+    assert parsed["features"] == {"other": True, "goals": True}
 
 
-def test_codex_goals_flag_is_not_duplicated() -> None:
-    from agentic_research_loop.source_bundles import ensure_codex_goals
-
-    already = '[features]\ngoals = true\n\nmodel = "some-model"\n'
-
-    assert ensure_codex_goals(already) == already
-
-
-def test_codex_goals_flag_is_written_even_for_an_mcpless_bundle(tmp_path) -> None:
+def test_goals_flag_is_written_even_for_an_mcpless_bundle(tmp_path) -> None:
     """`research source enable gsc` wires no server; the user still needs /goal."""
-    import tomllib
+    sb.enable_bundle(tmp_path, "gsc")
 
-    from agentic_research_loop.source_bundles import _wire_codex
-
-    config = tmp_path / ".codex" / "config.toml"
-    actions = _wire_codex(config, "", server=None, codex_toml=None)
-
-    assert any("enabled native goals" in action for action in actions)
-    assert (
-        tomllib.loads(config.read_text(encoding="utf-8"))["features"]["goals"] is True
-    )
-
-
-def test_codex_goals_flag_is_written_when_the_server_is_already_wired(tmp_path) -> None:
-    import tomllib
-
-    from agentic_research_loop.source_bundles import _wire_codex
-
-    config = tmp_path / ".codex" / "config.toml"
-    existing = '[mcp_servers.github]\nurl = "https://x.test"\n'
-
-    actions = _wire_codex(
-        config, existing, server="github", codex_toml="[mcp_servers.github]"
-    )
-
-    assert any("already in .codex/config.toml" in action for action in actions)
-    parsed = tomllib.loads(config.read_text(encoding="utf-8"))
-    assert parsed["features"]["goals"] is True
-    assert parsed["mcp_servers"]["github"]["url"] == "https://x.test"
+    config = tomllib.loads((tmp_path / ".codex" / "config.toml").read_text())
+    assert config["features"]["goals"] is True

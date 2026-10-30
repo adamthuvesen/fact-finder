@@ -1,0 +1,16 @@
+{
+  "server_name": "launchdarkly",
+  "command": "npx",
+  "args": [
+    "-y",
+    "--package",
+    "@launchdarkly/mcp-server",
+    "--",
+    "mcp",
+    "start",
+    "--scope",
+    "read",
+    "--api-key",
+    "${LAUNCHDARKLY_API_KEY}"
+  ]
+}

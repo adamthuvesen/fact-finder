@@ -1,0 +1,15 @@
+{
+  "sources": {
+    "confidence": {
+      "display_name": "Confidence",
+      "category": "product-analytics",
+      "transport": "http-oauth",
+      "read_only_control": {
+        "mechanism": "credential",
+        "detail": "connected account's permissions"
+      },
+      "plan_line": "Confidence for experiments, rollouts, and decision history.",
+      "notes": "Query rollout timing, experiment state, decision history, and results via the Confidence experiments MCP server. Read-only — never modify experiments or flags."
+    }
+  }
+}

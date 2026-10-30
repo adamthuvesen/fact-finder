@@ -1,170 +1,57 @@
 # First-time setup
 
-This repo **ships neutral MCP configs**: no servers wired by default. Sources are opt-in bundles under `examples/sources/`; enable the ones you need with `uv run research source enable <name>`, then **authenticate personally** to each (OAuth, an API key, a Snowflake login). Nothing in git carries credentials.
-
-## What you get from `git clone`
-
-- `.mcp.json`: **neutral** project MCP config for Claude Code (no servers by default). `research source enable <name>` wires a bundle's server into it and creates local (uncommitted) `.codex/config.toml` and `.cursor/mcp.json` for Codex / Cursor. Don't commit your enabled configs back; `uv run pytest -q` checks the files agree on server names.
-- `.claude/skills`: committed symlink to `.agents/skills/`, so Claude Code loads repo skills from clone with no extra sync.
-- `config/snowflake-mcp-tools.yaml`: Snowflake MCP tool allowlists (read-only SQL posture).
+This repo ships neutral MCP configs. Enable the sources you need, then authenticate
+personally to each one. Nothing in git carries credentials.
 
 ## Prerequisites
 
-- `uv` ([install](https://docs.astral.sh/uv/getting-started/installation/))
-- **Claude Code** and/or **Codex CLI** (optional; uses `.codex/config.toml`), recent enough to support native goals
-- Org access to the MCP-backed systems you need (Slack, Notion, Linear, Snowflake, etc.)
+- `uv`
+- Claude Code or Codex CLI, recent enough for native goals
+- Access to the systems behind the sources you enable
 
-## Fast path
-
-From the repository root:
-
-```bash
-./scripts/setup-dev.sh   # uv sync --dev + setup checker
-```
-
-The script does not modify MCP configs. Use `research source enable` for that. The checker may exit non-zero until you complete personal auth (see below). Prefer manual? `uv sync --dev`, then `uv run pytest -q` (optional).
-
-## Cursor
-
-`research source enable <name>` creates a local `.cursor/mcp.json` (not committed) and wires the server into it. Cursor then shows the wired servers; complete OAuth in its Settings → MCP panel (fixed redirect URI) on first use. Do not commit secrets or personal OAuth state.
+Run `./scripts/setup-dev.sh`. Its checker may fail until you finish personal auth.
 
 ## Native goals
 
-Research runs inside your client's native `/goal`, so that feature has to be
-available before anything else matters.
-
-- **Claude Code**: run `/goal` once to confirm your version supports it
-  ([docs](https://code.claude.com/docs/en/goal)).
-- **Codex**: goals sit behind a feature flag. `research source enable <name>`
-  writes `[features] goals = true` into your local `.codex/config.toml`; if you
-  never enable a bundle, add it yourself. Confirm with `codex features list`
-  ([docs](https://developers.openai.com/codex/goals)).
+- **Claude Code:** run `/goal` once to confirm your version supports it.
+- **Codex:** goals sit behind a flag. `research setup` and `research source enable` write
+  `[features] goals = true` into `.codex/config.toml`. Confirm with `codex features list`.
 
 There are no permission-bypass flags anywhere in this repo. The goal runs in your
-interactive session, so tool permissions prompt normally — which is the point.
+interactive session, so tool permissions prompt normally. That is the point.
 
-## MCP: Claude Code
+## Sources
 
-Official reference: [Connect Claude Code to tools via MCP](https://code.claude.com/docs/en/mcp).
+1. Run `uv run research source enable <name>`. The
+   [catalog](../../examples/sources/README.md) lists every bundle.
+2. Follow that bundle's `SETUP.md` for credentials and its read-only control.
+3. **Claude Code:** run `/mcp` and approve the server. **Codex:** mark this repo as a
+   trusted project, then run `codex mcp login <server>` for HTTP servers. **Cursor:**
+   complete OAuth in Settings, MCP.
+4. Run `uv run research doctor`.
 
-1. Enable the sources you want: `uv run research source enable <name>` (see `research source list`).
-2. Open a terminal in this repository and run `claude`.
-3. Run `/mcp`, approve the servers you enabled, and complete OAuth for each HTTP provider when prompted.
-4. Each bundle's `SETUP.md` covers its credentials (Snowflake uses your `default` connection; see below).
+**Do the `credential` sources first.** For them, nothing in committed config can
+guarantee read-only. The account or IAM role you connect is the only rule. Amplitude,
+Mixpanel, and HubSpot servers are read+write with destructive tools and no read-only
+flag. Verify that a write returns 403 before you leave a goal running unattended.
 
-## MCP: Codex (optional)
+Do not commit enabled configs back to this repo. A test keeps `.mcp.json` neutral.
 
-Official references: [Codex MCP](https://developers.openai.com/codex/mcp), [Codex config basics](https://developers.openai.com/codex/config-basic).
+## Google APIs
 
-Codex only loads **project-scoped** `.codex/config.toml` when this repository is marked as a **trusted** project. If tools do not appear, confirm trust first.
-
-1. Mark this repo as a trusted project in Codex.
-2. Enable sources with `research source enable <name>`, then `codex mcp login <server-name>` for OAuth HTTP servers. Slack needs a top-level `mcp_oauth_callback_port`; its bundle `SETUP.md` says where to add it. Complete OAuth locally. Tokens are **not** stored in git.
-
-## Snowflake
-
-Create a personal `default` connection in `~/.snowflake/config.toml`. Copy
-[`examples/snowflake-config.toml.example`](examples/snowflake-config.toml.example)
-and replace every placeholder with your own account, warehouse, database, and
-role. The MCP server is started with `--connection-name default`.
-
-## Optional: Google Search Console (GSC) and GA4
-
-**GSC** is an opt-in bundle. Prefer a **warehouse** (Snowflake or BigQuery) for
-organic-search metrics (synced GSC data); the `research gsc` CLI is the live
-Search Console API fallback. Run `research source enable gsc`, then follow
-[`examples/sources/gsc/SETUP.md`](../../examples/sources/gsc/) for the ADC login,
-the `webmasters.readonly` scope, and the `GSC_SITE` / `GCP_QUOTA_PROJECT` env.
-
-**GA4** is served by the official GA4 MCP server, not a CLI. Enable the
-`examples/sources/ga4/` bundle (read-only via the `analytics.readonly` scope).
-
-## Opt-in source bundles
-
-Sources beyond the built-ins ship as bundles under
-[`examples/sources/`](../../examples/sources/), each with a `source.json`,
-`mcp.snippet.json`, and `SETUP.md`. `uv run research source enable <name>` does
-the wiring; then follow the bundle's `SETUP.md` for credentials.
-
-**Do the credential-only sources first.** For these, *nothing in committed config
-can guarantee read-only*; the account or IAM role you connect is the only read-only rule:
-
-- **Jira**: provision a **view-only Atlassian account** (Browse Projects; no
-  create/edit/transition). The remote server has no read-only flag.
-- **BigQuery**: authenticate a principal with only **BigQuery Data Viewer + Job
-  User**, and prefer the `execute_sql_readonly` tool.
-- **Confluence**: same Atlassian server as Jira; provision a **view-only account**
-  (Confluence read; no add/edit/comment).
-- **Datadog**: authenticate a principal with the **Datadog Read-Only Role** (or
-  `*_read` app-key scopes). Preview API may change.
-- **Amplitude / Mixpanel**: **read+write MCP servers with destructive tools** (create
-  experiments/feature-flags; Mixpanel can delete dashboards and bulk-edit the
-  taxonomy) and **no read-only flag**. The **account role is the only read-only rule**:
-  use a dedicated **Amplitude Viewer** / **Mixpanel Consumer** account and verify a
-  write returns 403 before you leave a goal running unattended.
-  Prefer **PostHog** for a provably read-only product-analytics source.
-- **HubSpot**: **read+write MCP server, no read-only flag.** Create the MCP Auth App
-  and **grant only `*.read` scopes** (HubSpot then 403s writes), and connect a read-only
-  user. The enforcement is real but lives in the grant, so config cannot audit it.
-- **Azure DevOps** (local server): **read+write MCP server, no read-only flag.** Provision a
-  **read-only-scoped PAT** (Read scopes only, no write) or a **Stakeholder / read-only
-  account**; the credential is the only read-only rule. The remote server's `X-MCP-Readonly`
-  header isn't usable from Claude/Codex/Cursor yet (pending Entra dynamic client registration).
-
-The rest enforce read-only via a config flag or a read-only scope (the contract test
-checks each declares its mechanism). Still scope the credential as defense in depth:
-
-- **GitHub**: `/readonly` endpoint (strict filter); pair with a read-only PAT.
-- **Postgres**: `--access-mode=restricted`; pair with a SELECT-only role and pass
-  `DATABASE_URI` via the environment, never committed config.
-- **DuckDB**: read-only by default (omit `--read-write`).
-- **GA4**: `analytics.readonly` ADC scope.
-- **Sentry**: a read-scoped auth token (`org:read`, `project:read`, `event:read`);
-  not the hosted OAuth flow, which grants write.
-- **PostHog**: a personal API key with only `*:read` scopes (not the `mcp_server`
-  preset, which adds `feature_flag:write`); the read-scoped key blocks writes
-  server-side (403), so read-only is enforced by the credential itself.
-- **LaunchDarkly**: run the local server with `--scope read` **and** a **Reader-role**
-  API token (writes are 403'd at the API); never a Writer/Developer token.
-- **Statsig**: a Console API key with the **`omni_read_only`** scope (the API rejects
-  writes); never an `omni_read_write` key.
-- **Stripe**: a **Restricted API Key (`rk_`)** scoped Read-only (writes 403 at the
-  API); never a secret (`sk_`) or write-scoped key.
-- **Salesforce**: pin `--toolsets=data,users` (drops deploy/Apex tools) **and** log
-  the CLI into a **read-only-permission-set** org user; Beta, re-check toolsets.
-- **Databricks**: wire the **Genie** endpoint (`/api/2.0/mcp/genie`, read-only by
-  design); not the SQL server (read+write, UC-grant-guarded).
-- **Redshift**: engine-enforced read-only (every query in `BEGIN READ ONLY`, no write
-  tools); still scope a read-only IAM role + DB user (writes are on AWS's roadmap).
-- **Google Drive**: `drive.readonly` OAuth scope (Google's official Drive MCP); grant only
-  the read-only scope at consent, never `drive` (full) or `drive.file` (write).
-- **Microsoft 365**: `--read-only` flag on `ms-365-mcp-server` (disables every Graph write);
-  add `--org-mode` for SharePoint/OneDrive/Teams; back it with a read-only work account.
-- **Azure**: `--read-only` flag on the official Azure MCP Server (filters to read-only tools
-  across Monitor/Log Analytics, Azure SQL, Kusto...); also scope an Azure **Reader** RBAC role.
-
-See each bundle's `SETUP.md` for exact steps.
+`research gsc` and `research ga4` use Application Default Credentials with read-only
+scopes. Set `GSC_SITE` or `GA4_PROPERTY_ID`. There is no default. `GCP_QUOTA_PROJECT` is
+optional. See the `gsc` and `ga4` bundles' `SETUP.md`. For Snowflake, copy
+[the example connection](examples/snowflake-config.toml.example).
 
 ## Verify
 
-```bash
-uv run python scripts/check_agent_setup.py
-```
+`uv run python scripts/check_agent_setup.py` checks `uv`, the goal prerequisites, and
+`claude mcp get` for the servers you enabled. Having no servers is a pass: web-search and
+`--context-path` cases need none.
 
-This checks `uv`, the Claude Code and Codex goal prerequisites, and — when
-`claude` is installed — `claude mcp get` for exactly the servers you enabled.
-Having no servers wired is a pass, not a failure: web-search and `--context-path`
-cases need none. Failures on an enabled HTTP server are normal until you complete
-OAuth in your client.
+## Add a source
 
-## Adding a new source
-
-Sources are **bundles**, not committed config. To add one, create
-`examples/sources/<name>/` with three files (copy an existing bundle; see
-[`examples/sources/README.md`](../../examples/sources/README.md)):
-
-1. **`source.json`**: the registry spec (`transport`, `read_only_mechanism`, `base_notes`, ...).
-2. **`mcp.snippet.json`**: the server block in all three tool shapes (`claude`, `cursor`, `codex_toml`). stdio needs `command`/`args`; HTTP needs `url` (+ `oauth` in the `claude` shape if it uses a fixed callback, like Slack).
-3. **`SETUP.md`**: credentials + how read-only is enforced (must mention read-only).
-
-Then `uv run research source enable <name>` wires it into all three MCP configs. `uv run pytest -q` runs the read-only contract test (`tests/test_readonly_contract.py`) over every bundle plus the three-file consistency check.
+Create `examples/sources/<name>/` with `source.json`, `SETUP.md`, and, for an MCP server,
+`mcp.snippet.json`. Copy an existing bundle. List write tools only when `SETUP.md` names
+them. Run `uv run python scripts/generate_source_docs.py`, then `make check`.
