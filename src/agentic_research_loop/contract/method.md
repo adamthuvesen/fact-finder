@@ -1,6 +1,7 @@
 # Research method
 
-These rules apply to every case. `research contract method` prints this file, and
+These rules are sensible defaults for every case. Scale them to the question: a quick question
+does not need the whole list. The hard limits are read-only access and using only allowed sources. `research contract method` prints this file, and
 `research contract evidence` prints the evidence contract.
 
 ## Frame
@@ -43,12 +44,16 @@ These rules apply to every case. `research contract method` prints this file, an
 
 ## Conclude
 
-- Keep material claims traceable to preserved evidence through `evidence.json` and report markers.
+- Keep material claims traceable to evidence. A decision case does this through `evidence.json`
+  and report markers.
 - Reconcile calculated contributions to source totals when applicable. Name the denominator.
-- Record rejected leads and unresolved risks, and a coverage disposition for every allowed family.
+- Record rejected leads and unresolved risks. A decision case also records a coverage disposition
+  for every allowed family.
 - Give a bounded or inconclusive answer when the evidence cannot justify more.
-- Delegate the final challenge to an independent subagent that did not conduct the research. It
-  checks omitted claims, citation support, source independence, denominators, and causal language.
-- Finish with `uv run research validate <case> --strict`. Fix every failure and surface the result
-  in your last response, so the goal can see it. Stop early only for a concrete external blocker,
+- For a decision case, delegate the final challenge to an independent subagent that did not conduct
+  the research. It checks omitted claims, citation support, source independence, denominators, and
+  causal language. An exploratory case needs no review, and its report says so.
+- Finish with `uv run research validate <case> --strict`. Fix every error, consider every warning,
+  and surface the result in your last response, so the goal can see it. Only a person may accept
+  a block with `--accept "<reason>"`. Stop early only for a concrete external blocker,
   and record it in `notes.md` and `report.md`.

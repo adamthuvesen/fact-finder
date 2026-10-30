@@ -11,5 +11,10 @@
     "cancel_subscription",
     "create_invoice",
     "create_payment_link"
-  ]
+  ],
+  "alternatives": {
+    "--tools=all": [
+      "--tools=[\\w.,]+\\.read"
+    ]
+  }
 }

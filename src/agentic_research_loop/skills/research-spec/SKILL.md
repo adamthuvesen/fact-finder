@@ -43,7 +43,8 @@ in Phases 3 and 4.
    short orientation summary.
 3. **Design.** Write ranked hypotheses, threads, and the remaining brief sections.
    Present the spec and **wait for confirmation or edits**.
-4. **Scaffold.** Write the files to a tmpdir, run `research init --from-spec`, then
+4. **Scaffold.** Write the files to a tmpdir, run `research init --from-spec` (add
+   `--rigour decision` when the answer drives a decision that matters), then
    fix and re-run `uv run research validate <case>` until it passes.
 5. **Hand off.** Run `uv run research goal <case>`. If a native `/goal` is active,
    treat the contract as your instructions and continue in this session. Do not

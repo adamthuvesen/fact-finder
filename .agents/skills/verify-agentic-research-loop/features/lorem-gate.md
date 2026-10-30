@@ -1,6 +1,6 @@
 # Lorem ipsum gate
 
-A filler case and a reviewer named after a client both fail strict validation.
+In a decision case, a filler case and a reviewer named after a client both fail strict validation.
 
 Source: src/agentic_research_loop/evidence.py, src/agentic_research_loop/validation.py
 Inventory-id: validate

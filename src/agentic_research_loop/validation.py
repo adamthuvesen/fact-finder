@@ -1,28 +1,44 @@
 """Validate durable case artifacts without inspecting agent runtime state.
 
-The native goal owns execution, so the only thing worth checking afterwards is the
-record it left behind. `validate_case(..., strict_completion=True)` is the goal's
-terminal condition. Every check here has to be something an agent can fix by doing
-better research rather than by editing bookkeeping.
+Safety and rigour are separate. Safety always blocks: `queries.sql` must be read-only, and
+evidence must stay inside the case. Rigour is a default a person can override with a reason,
+which is recorded and labelled. A rigour check blocks only when passing would otherwise
+produce a silently misleading result. Everything else warns.
 
-A gate cannot prove semantic truth or reviewer independence. `GATE_LIMITS` says so
-in the CLI output, and docs/evidence-contract.md explains it.
+A case's rigour is `exploratory` or `decision`. An exploratory case is a labelled quick
+answer that needs no evidence manifest or review. A decision case needs the full evidence
+contract. A brief with no rigour line is a decision case, so older cases keep their contract.
+
+A gate cannot prove semantic truth or reviewer independence. `GATE_LIMITS` says so in the
+CLI output, and the evidence contract explains it.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import date
 from pathlib import Path
+from typing import Literal
 
-from pydantic import ValidationError
+from pydantic import Field, ValidationError
 
-from .evidence import load_evidence, validate_evidence
-from .io import extract_section, read_text
+from .evidence import (
+    ACCEPTED_GAPS_END,
+    ACCEPTED_GAPS_START,
+    STALE_REVIEW,
+    Finding,
+    evidence_findings,
+    load_evidence,
+    without_accepted_gaps,
+)
+from .io import extract_section, read_text, write_documents
 from .layout import (
     brief_path,
     evidence_path,
+    local_today,
     notes_path,
     plan_path,
     queries_path,
@@ -31,42 +47,49 @@ from .layout import (
 )
 from .readonly_sql import ReadOnlySql, UnsafeSqlError
 from .source_bundles import sql_backed_families
-from .templates import NO_SOURCE_FAMILIES, PLACEHOLDER, RESEARCH_SHAPE
+from .strict_model import StrictModel
+from .templates import (
+    EXPLORATORY_LABEL,
+    NO_SOURCE_FAMILIES,
+    PLACEHOLDER,
+    RESEARCH_SHAPE,
+    RIGOUR,
+)
 
 GATE_LIMITS = (
-    "Checked evidence integrity, arithmetic, coverage, and review freshness. "
-    "Semantic truth and reviewer independence cannot be proved by a gate; "
-    "they require independent judgment."
+    "A gate checks integrity and arithmetic. Semantic truth and reviewer independence "
+    "cannot be proved by a gate; they require independent judgment."
 )
 MIN_SUBSTANTIVE_CONTENT_LENGTH = 60
-
 VALID_TEMPLATES = frozenset({"exploration", "root-cause", "comparison"})
+Rigour = Literal["exploratory", "decision"]
+NEVER_OVERRIDDEN = frozenset({"safety", "structure"})
+BLOCKS_AT_COMPLETION: dict[Rigour, frozenset[str]] = {
+    "exploratory": frozenset({"answer", "wrong"}),
+    "decision": frozenset({"answer", "wrong", "contract"}),
+}
+OVERRIDES_FILE = "overrides.json"
 
-REQUIRED_FILES = {
-    "brief.md": brief_path,
+REQUIRED_FILES = {"brief.md": brief_path, "report.md": report_path}
+EXPECTED_FILES = {
     "notes.md": notes_path,
-    "report.md": report_path,
     "queries.sql": queries_path,
     "source-objects.md": source_objects_path,
 }
 REPORT_SECTIONS = ("Evidence", "Reconciliation", "Rejected Leads", "Risks And Caveats")
 
-# Field names a high-priority root-cause thread must carry. The research-spec
-# skill writes these exact strings; changing one here breaks that contract.
+# Field names a high-priority root-cause thread should carry. The research-spec
+# skill writes these exact strings.
 ROOT_CAUSE_DESIGN_FIELDS = (
     "Discriminating Test",
     "Strongest Rival",
     "Completion Threshold",
     "Cross-Check",
 )
-
 _ROOT_CAUSE_BRIEF_SECTIONS = (
-    ("## Hypotheses", "root-cause brief should include a `## Hypotheses` section"),
-    ("## Known Confounders", "root-cause brief should capture `## Known Confounders`"),
-    (
-        "## Required Cross-Checks",
-        "root-cause brief should capture `## Required Cross-Checks`",
-    ),
+    "Hypotheses",
+    "Known Confounders",
+    "Required Cross-Checks",
 )
 
 THREAD_PATTERN = re.compile(
@@ -77,6 +100,18 @@ SOURCE_OBJECT_BULLET = re.compile(r"(?m)^- +(.*(?:\n[ \t]+.*)*)")
 ACCESS_DATE = re.compile(r"\baccessed\s+(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE)
 BACKTICKED = re.compile(r"`([^`]+)`")
 BARE_URL = re.compile(r"https?://\S+")
+
+
+class Override(StrictModel):
+    """A person's recorded decision to accept what a rigour check would block."""
+
+    reason: str = Field(min_length=1)
+    accepted_at: str
+    accepted: list[str]
+
+
+class OverridesFile(StrictModel):
+    overrides: list[Override]
 
 
 @dataclass(frozen=True)
@@ -99,15 +134,33 @@ def report_has_substance(report_text: str) -> bool:
     return len(" ".join(summary.split())) >= MIN_SUBSTANTIVE_CONTENT_LENGTH
 
 
-def _report_errors(report: str) -> list[str]:
-    errors = [
-        f"report.md needs a completed {heading} section"
-        for heading in REPORT_SECTIONS
-        if _section_is_placeholder(report, heading)
-    ]
+def _report_findings(text: str, rigour: Rigour) -> list[Finding]:
+    report = without_accepted_gaps(text)
+    findings: list[Finding] = []
     if not report_has_substance(report):
-        errors.insert(0, "report.md needs a meaningful Executive Summary")
-    return errors
+        findings.append(
+            Finding("answer", "report.md needs a meaningful Executive Summary")
+        )
+    if rigour == "exploratory" and EXPLORATORY_LABEL not in report:
+        findings.append(
+            Finding("answer", f"report.md needs its label line: `{EXPLORATORY_LABEL}`")
+        )
+    findings.extend(
+        Finding("contract", f"report.md needs a completed {heading} section")
+        for heading in REPORT_SECTIONS
+        if rigour == "decision" and _section_is_placeholder(report, heading)
+    )
+    unfilled = [
+        heading
+        for heading in REPORT_SECTIONS
+        if rigour == "exploratory"
+        and PLACEHOLDER in (extract_section(report, heading) or "")
+    ]
+    if unfilled:
+        findings.append(
+            Finding("format", f"report.md has unfilled sections: {', '.join(unfilled)}")
+        )
+    return findings
 
 
 def parse_source_objects(text: str) -> tuple[list[SourceObject], list[str]]:
@@ -136,32 +189,35 @@ def parse_source_objects(text: str) -> tuple[list[SourceObject], list[str]]:
     return objects, errors
 
 
-def _source_object_errors(case_path: Path, text: str) -> list[str]:
+def _source_object_findings(case_path: Path, text: str | None) -> list[Finding]:
+    if text is None:
+        return []
     if PLACEHOLDER in text:
-        return ["source-objects.md still has its placeholder"]
+        return [Finding("format", "source-objects.md still has its placeholder")]
     objects, errors = parse_source_objects(text)
-    if not objects:
-        return [*errors, "source-objects.md needs at least one concrete source object"]
+    findings = [Finding("format", error) for error in errors]
+    if not objects and not errors:
+        findings.append(Finding("format", "source-objects.md lists no source object"))
     if not evidence_path(case_path).exists():
-        return errors
+        return findings
     try:
         evidence = load_evidence(case_path)
     except (OSError, UnicodeError, ValueError, ValidationError):
-        return errors
-    listed = {item.locator for item in objects}
-    errors.extend(
-        f"{source.id}: locator {source.locator} is not listed in source-objects.md"
+        return findings
+    findings.extend(
+        Finding(
+            "format",
+            f"{source.id}: locator {source.locator} is not listed in source-objects.md",
+        )
         for source in evidence.sources
-        if source.locator not in listed
+        if source.locator not in text
     )
-    return errors
+    return findings
 
 
-def _coverage_errors(case_path: Path, brief: str) -> list[str]:
+def _coverage_findings(case_path: Path, brief: str) -> list[Finding]:
     section = extract_section(brief, "Allowed Source Families")
-    if section is None:
-        return ["brief.md needs an `## Allowed Source Families` section"]
-    if not evidence_path(case_path).exists():
+    if section is None or not evidence_path(case_path).exists():
         return []
     try:
         evidence = load_evidence(case_path)
@@ -170,15 +226,13 @@ def _coverage_errors(case_path: Path, brief: str) -> list[str]:
     allowed = {name.strip() for name in section.split(",") if name.strip()}
     allowed.discard(NO_SOURCE_FAMILIES)
     if allowed != {item.family for item in evidence.coverage}:
-        return ["evidence.json coverage must match the brief's Allowed Source Families"]
+        return [
+            Finding(
+                "format",
+                "evidence.json coverage does not match the brief's Allowed Source Families",
+            )
+        ]
     return []
-
-
-def _sql_errors(sql: str) -> tuple[list[str], ReadOnlySql | None]:
-    try:
-        return [], ReadOnlySql.parse(sql)
-    except UnsafeSqlError as exc:
-        return [f"queries.sql is not read-only: {exc}"], None
 
 
 def _used_sql_families(case_path: Path) -> list[str]:
@@ -197,19 +251,27 @@ def _used_sql_families(case_path: Path) -> list[str]:
     )
 
 
-def _sql_provenance_errors(case_path: Path, queries: ReadOnlySql | None) -> list[str]:
+def _sql_provenance_findings(
+    case_path: Path, queries: ReadOnlySql | None
+) -> list[Finding]:
     if queries is None or queries.statement_count:
         return []
     used = _used_sql_families(case_path)
     if used:
         return [
-            f"queries.sql needs a preserved read-only query: this case used "
-            f"{', '.join(used)}, so `-- No SQL used` does not apply"
+            Finding(
+                "contract",
+                f"queries.sql needs a preserved read-only query: this case used "
+                f"{', '.join(used)}, so `-- No SQL used` does not apply",
+            )
         ]
     if queries.no_sql_reason:
         return []
     return [
-        "queries.sql needs a read-only query or an explicit `-- No SQL used: <reason>`"
+        Finding(
+            "format",
+            "queries.sql has no query and no `-- No SQL used: <reason>` line",
+        )
     ]
 
 
@@ -226,92 +288,263 @@ def parse_plan_threads(plan_text: str) -> list[tuple[str, dict[str, str]]]:
     ]
 
 
-def _case_template(brief_text: str) -> tuple[str | None, list[str]]:
-    """Read the case's research shape from the brief.
-
-    An unreadable shape is an error rather than a silent `None`: falling through
-    would skip the whole root-cause design contract while validation still passed.
-    """
-    match = RESEARCH_SHAPE.search(brief_text)
-    if match is None:
-        return None, [
-            "brief.md needs a `- Research shape: <template>` line in `## Scope`"
-        ]
-    template = match.group(1).lower()
-    if template not in VALID_TEMPLATES:
-        return None, [
-            f"brief.md has an unknown research shape {template!r}. "
-            f"Use one of: {', '.join(sorted(VALID_TEMPLATES))}"
-        ]
-    return template, []
-
-
-def _root_cause_design_errors(case_path: Path, brief_text: str) -> list[str]:
-    """Check the design contract that makes a root-cause case falsifiable."""
-    errors = [
-        message
-        for heading, message in _ROOT_CAUSE_BRIEF_SECTIONS
-        if heading not in brief_text
+def _root_cause_findings(case_path: Path, brief_text: str) -> list[Finding]:
+    """Check the design sections that make a root-cause case falsifiable."""
+    findings = [
+        Finding("format", f"root-cause brief should capture `## {heading}`")
+        for heading in _ROOT_CAUSE_BRIEF_SECTIONS
+        if f"## {heading}" not in brief_text
     ]
     plan_file = plan_path(case_path)
     if not plan_file.exists():
-        return errors
+        return findings
     try:
         plan_text = read_text(plan_file)
     except (OSError, UnicodeError) as exc:
-        return [*errors, f"Could not read plan.md: {exc}"]
+        return [*findings, Finding("format", f"Could not read plan.md: {exc}")]
     if "No plan yet" in plan_text:
-        return errors
+        return findings
     threads = parse_plan_threads(plan_text)
     if not threads:
-        return [*errors, "plan.md has content but no numbered research threads"]
-    errors.extend(
-        f"{heading} is high priority but missing `{field_name}`"
+        return [
+            *findings,
+            Finding("format", "plan.md has content but no numbered research threads"),
+        ]
+    findings.extend(
+        Finding("format", f"{heading} is high priority but missing `{field_name}`")
         for heading, fields in threads
         if fields.get("Priority", "").lower() == "high"
         for field_name in ROOT_CAUSE_DESIGN_FIELDS
         if field_name not in fields
     )
-    return errors
+    return findings
 
 
-def validate_case(case_path: Path, *, strict_completion: bool = False) -> list[str]:
-    """Validate durable case artifacts.
+def _shape_findings(case_path: Path, brief: str) -> list[Finding]:
+    match = RESEARCH_SHAPE.search(brief)
+    if match is None:
+        return [
+            Finding(
+                "format",
+                "brief.md has no `- Research shape: <template>` line in `## Scope`",
+            )
+        ]
+    shape = match.group(1).lower()
+    if shape not in VALID_TEMPLATES:
+        return [
+            Finding(
+                "format",
+                f"brief.md has an unknown research shape {shape!r}. "
+                f"Use one of: {', '.join(sorted(VALID_TEMPLATES))}",
+            )
+        ]
+    return _root_cause_findings(case_path, brief) if shape == "root-cause" else []
 
-    The default pass checks structure, read-only SQL, and evidence integrity, and is
-    safe at scaffold time. `strict_completion` adds the end-of-case gate.
-    """
-    errors: list[str] = []
+
+def case_rigour(brief: str) -> Rigour:
+    match = RIGOUR.search(brief)
+    return (
+        "exploratory"
+        if match and match.group(1).lower() == "exploratory"
+        else "decision"
+    )
+
+
+def _read_case_files(
+    case_path: Path,
+) -> tuple[dict[str, str], list[Finding]]:
     texts: dict[str, str] = {}
-    for name, path_for in REQUIRED_FILES.items():
+    findings: list[Finding] = []
+    for name, path_for in {**REQUIRED_FILES, **EXPECTED_FILES}.items():
+        required = name in REQUIRED_FILES
         path = path_for(case_path)
         if not path.exists():
-            errors.append(f"Missing required file: {name}")
+            findings.append(
+                Finding("structure" if required else "format", f"Missing file: {name}")
+            )
             continue
         try:
             texts[name] = read_text(path)
         except (OSError, UnicodeError) as exc:
-            errors.append(f"Could not read {name}: {exc}")
+            kind = "format"
+            if required:
+                kind = "structure"
+            elif name == "queries.sql":
+                # SQL that cannot be read cannot be shown to be read-only.
+                kind = "safety"
+            findings.append(Finding(kind, f"Could not read {name}: {exc}"))
+    return texts, findings
 
-    sql_errors, queries = _sql_errors(texts.get("queries.sql", ""))
-    errors.extend(sql_errors)
-    if errors:
-        return errors
 
+def _all_findings(
+    case_path: Path, rigour: Rigour, texts: dict[str, str]
+) -> list[Finding]:
     brief = texts["brief.md"]
-    template, template_errors = _case_template(brief)
-    errors.extend(template_errors)
-    if template == "root-cause":
-        errors.extend(_root_cause_design_errors(case_path, brief))
-    errors.extend(validate_evidence(case_path, strict_completion=strict_completion))
-    if not strict_completion:
-        return errors
-
+    try:
+        queries = ReadOnlySql.parse(texts.get("queries.sql", ""))
+        findings: list[Finding] = []
+    except UnsafeSqlError as exc:
+        queries = None
+        findings = [Finding("safety", f"queries.sql is not read-only: {exc}")]
+    findings.extend(_shape_findings(case_path, brief))
+    findings.extend(
+        evidence_findings(case_path, strict_completion=rigour == "decision")
+    )
     question = extract_section(brief, "Question")
     if question is None or question.lower().startswith("research:"):
-        errors.append("brief.md needs a specific research question")
-    errors.extend(_coverage_errors(case_path, brief))
-    errors.extend(_report_errors(texts["report.md"]))
-    errors.extend(_source_object_errors(case_path, texts["source-objects.md"]))
-    errors.extend(_sql_provenance_errors(case_path, queries))
-    return errors
+        findings.append(Finding("format", "brief.md has no specific research question"))
+    findings.extend(_coverage_findings(case_path, brief))
+    findings.extend(_report_findings(texts["report.md"], rigour))
+    findings.extend(_source_object_findings(case_path, texts.get("source-objects.md")))
+    findings.extend(_sql_provenance_findings(case_path, queries))
+    return findings
+
+
+def _load_overrides(case_path: Path) -> list[Override]:
+    path = case_path / OVERRIDES_FILE
+    if not path.exists():
+        return []
+    try:
+        return OverridesFile.model_validate_json(read_text(path)).overrides
+    except ValidationError as exc:
+        raise ValueError(
+            f"{OVERRIDES_FILE} is invalid: {exc.errors()[0]['msg']}"
+        ) from exc
+
+
+@dataclass(frozen=True)
+class Assessment:
+    rigour: Rigour
+    strict: bool
+    errors: list[str]
+    warnings: list[str]
+    hard_errors: list[str] = dataclass_field(default_factory=list[str])
+    accepted: dict[str, list[str]] = dataclass_field(
+        default_factory=dict[str, list[str]]
+    )
+
+    @property
+    def review_is_stale(self) -> bool:
+        return any(STALE_REVIEW in item for item in [*self.warnings, *self.accepted])
+
+    @property
+    def label(self) -> str:
+        """Say what actually happened, including everything a person accepted."""
+        if self.errors:
+            return f"Not complete: {len(self.errors)} blocking findings."
+        if not self.strict:
+            return "Structure and read-only SQL checked. Completion not checked."
+        if self.rigour == "exploratory":
+            base = "Exploratory answer: no independent review."
+        elif self.accepted:
+            base = "Decision case with accepted gaps: not fully checked."
+        elif self.review_is_stale:
+            base = "Decision case: the review predates the latest edits."
+        else:
+            base = "Decision case: evidence checked and review fresh."
+        gaps = [
+            f'Accepted: "{_one_line(finding)}" because {"; ".join(reasons)}.'
+            for finding, reasons in self.accepted.items()
+        ]
+        return " ".join([base, *gaps])
+
+
+def _one_line(text: str, limit: int = 160) -> str:
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else f"{flat[:limit]}..."
+
+
+def assess_case(
+    case_path: Path, *, strict_completion: bool = False, pinned: bool = False
+) -> Assessment:
+    """Classify every finding. `pinned` makes a stale review block."""
+    texts, read_findings = _read_case_files(case_path)
+    rigour = case_rigour(texts.get("brief.md", ""))
+    if any(finding.kind == "structure" for finding in read_findings):
+        findings = read_findings
+    else:
+        findings = [*read_findings, *_all_findings(case_path, rigour, texts)]
+    blocking: frozenset[str] = frozenset()
+    if strict_completion:
+        blocking = BLOCKS_AT_COMPLETION[rigour]
+        if pinned:
+            blocking |= {"stale"}
+    reasons: dict[str, list[str]] = {}
+    for override in _load_overrides(case_path):
+        for message in override.accepted:
+            reasons.setdefault(message, []).append(override.reason)
+    errors: list[str] = []
+    warnings: list[str] = []
+    hard_errors: list[str] = []
+    accepted: dict[str, list[str]] = {}
+    for finding in findings:
+        if finding.kind in NEVER_OVERRIDDEN:
+            errors.append(finding.message)
+            hard_errors.append(finding.message)
+        elif finding.kind not in blocking:
+            warnings.append(finding.message)
+        elif finding.message in reasons:
+            accepted[finding.message] = reasons[finding.message]
+        else:
+            errors.append(finding.message)
+    return Assessment(
+        rigour=rigour,
+        strict=strict_completion,
+        errors=errors,
+        warnings=warnings,
+        hard_errors=hard_errors,
+        accepted=accepted,
+    )
+
+
+def _render_accepted_gaps(overrides: list[Override]) -> str:
+    lines = [
+        f"- {_one_line(message)} Reason: {override.reason} ({override.accepted_at})"
+        for override in overrides
+        for message in override.accepted
+    ]
+    return "\n".join(
+        [
+            ACCEPTED_GAPS_START,
+            "## Accepted Gaps",
+            "",
+            "A person accepted these. Validation did not pass them.",
+            "",
+            *lines,
+            ACCEPTED_GAPS_END,
+            "",
+        ]
+    )
+
+
+def accept_findings(case_path: Path, reason: str, *, pinned: bool = False) -> list[str]:
+    """Record a person's override of the current rigour blocks, in the case and its report.
+
+    Safety cannot be overridden. A repeat records the new reason for what it still covers.
+    """
+    text = reason.strip()
+    if not text:
+        raise ValueError("--accept needs a short reason")
+    current = assess_case(case_path, strict_completion=True, pinned=pinned)
+    accepted = [
+        *(error for error in current.errors if error not in current.hard_errors),
+        *current.accepted,
+    ]
+    if not accepted:
+        return []
+    overrides = [
+        *_load_overrides(case_path),
+        Override(reason=text, accepted_at=local_today().isoformat(), accepted=accepted),
+    ]
+    report = report_path(case_path)
+    body = without_accepted_gaps(read_text(report))
+    write_documents(
+        {
+            case_path / OVERRIDES_FILE: json.dumps(
+                OverridesFile(overrides=overrides).model_dump(), indent=2
+            )
+            + "\n",
+            report: f"{body}\n{_render_accepted_gaps(overrides)}",
+        }
+    )
+    return accepted

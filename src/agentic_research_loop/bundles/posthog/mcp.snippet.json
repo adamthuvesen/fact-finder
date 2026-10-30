@@ -7,5 +7,10 @@
     "https://mcp.posthog.com/mcp",
     "--header",
     "Authorization:${POSTHOG_AUTH_HEADER}"
-  ]
+  ],
+  "alternatives": {
+    "https://mcp.posthog.com/mcp": [
+      "https://mcp-eu\\.posthog\\.com/mcp"
+    ]
+  }
 }

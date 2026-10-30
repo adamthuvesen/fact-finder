@@ -5,13 +5,13 @@ import json
 from pathlib import Path
 
 import pytest
+from support.checks import validate_evidence
 
 from agentic_research_loop.evidence import (
     SCAFFOLD_COVERAGE_REASON,
     Evidence,
     evidence_template,
     review_snapshot,
-    validate_evidence,
 )
 
 

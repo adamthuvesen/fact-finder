@@ -2,16 +2,17 @@
 
 This reads local config files. It does not contact any server. A passing doctor says
 the config matches the declaration, and says nothing about what the upstream server
-actually does. It checks each client's wired entry, so a value the user filled in from
-SETUP.md is fine, and a removed read-only control is not.
+actually does. It compares each client's wired entry with the bundle definition. A value
+the definition declares as user-filled is fine, and any other target or argument is not.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 from pydantic import TypeAdapter, ValidationError
@@ -80,7 +81,9 @@ def control_problem(
 ) -> str | None:
     """Return why a server breaks its declared control, or None if it holds."""
     match control.mechanism:
-        case "url_suffix" if not url.endswith(control.detail):
+        case "url_suffix" if not (
+            url.endswith(control.detail) or f"{control.detail}/" in url
+        ):
             return f"url does not end with {control.detail}"
         case "server_flag" if control.detail not in args:
             return f"args do not include {control.detail}"
@@ -104,6 +107,55 @@ def _statement_allowlist_problem(
     return f"{relative} {problem}" if problem else None
 
 
+def _value_pattern(value: str, server: ServerDefinition) -> str:
+    pattern = re.escape(value).replace(re.escape("@latest"), r"@[\w.-]+")
+    for placeholder in server.placeholders:
+        fill = r"/\S+" if placeholder.startswith("/") else r"[^/\s]+"
+        pattern = pattern.replace(re.escape(placeholder), fill)
+    return "|".join([pattern, *server.alternatives.get(value, [])])
+
+
+def _matches(value: object, default: str | None, server: ServerDefinition) -> bool:
+    if default is None:
+        return value is None
+    return isinstance(value, str) and bool(
+        re.fullmatch(_value_pattern(default, server), value)
+    )
+
+
+def _without_optional_args(args: list[str], server: ServerDefinition) -> list[str]:
+    kept: list[str] = []
+    skip_value = False
+    for arg in args:
+        if skip_value:
+            skip_value = False
+        elif arg in server.optional_args:
+            skip_value = True
+        elif not any(arg.startswith(f"{flag}=") for flag in server.optional_args):
+            kept.append(arg)
+    return kept
+
+
+def server_differences(entry: dict[str, Any], server: ServerDefinition) -> list[str]:
+    """Compare what a client would connect to with the bundle's definition.
+
+    Only the url, command, and args choose the server. Other keys, such as `env` and
+    `headers`, hold the credentials SETUP.md tells the user to add.
+    """
+    differences = [
+        f"{key} is {entry.get(key)!r}"
+        for key, default in (("url", server.url), ("command", server.command))
+        if not _matches(entry.get(key), default, server)
+    ]
+    args = _without_optional_args([str(arg) for arg in entry.get("args", [])], server)
+    if len(args) != len(server.args) or not all(
+        _matches(arg, default, server)
+        for arg, default in zip(args, server.args, strict=True)
+    ):
+        differences.append(f"args are {args!r}")
+    return differences
+
+
 def _client_checks(
     repo_root: Path, clients: ClientConfigs, bundle: Bundle, server: ServerDefinition
 ) -> list[DoctorCheck]:
@@ -124,6 +176,12 @@ def _client_checks(
             )
             for placeholder in server.placeholders
             if placeholder in json.dumps(entry)
+        )
+        checks.extend(
+            DoctorCheck(
+                bundle.name, "fail", f"{label} differs from the bundle: {difference}"
+            )
+            for difference in server_differences(entry, server)
         )
         if control.mechanism in CONFIG_CHECKED:
             problem = control_problem(

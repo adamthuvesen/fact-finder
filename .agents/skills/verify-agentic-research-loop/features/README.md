@@ -29,6 +29,7 @@ unmet prerequisite. Never report one entry point as verified through another.
 | Feature | File | Inventory ids | Last verified |
 | --- | --- | --- | --- |
 | case-lifecycle | [case-lifecycle.md](case-lifecycle.md) | init, goal, validate, review-snapshot, list | 7be7160-dirty 2026-11-04 created |
+| quick-answer | [quick-answer.md](quick-answer.md) | init, validate | 7be7160-dirty 2026-11-04 created |
 | lorem-gate | [lorem-gate.md](lorem-gate.md) | validate | 7be7160-dirty 2026-11-04 created |
 | sql-gate | [sql-gate.md](sql-gate.md) | validate | 7be7160-dirty 2026-11-04 created |
 | sources | [sources.md](sources.md) | source, doctor | 7be7160-dirty 2026-11-04 created |

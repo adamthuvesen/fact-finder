@@ -15,7 +15,15 @@ def test_case_lifecycle(repo_root: Path, monkeypatch, capsys) -> None:
 
     assert (
         main(
-            ["init", "exports", "--question", "Why did failures rise?", "--local-only"]
+            [
+                "init",
+                "exports",
+                "--question",
+                "Why did failures rise?",
+                "--local-only",
+                "--rigour",
+                "decision",
+            ]
         )
         == 0
     )
@@ -37,7 +45,9 @@ def test_case_lifecycle(repo_root: Path, monkeypatch, capsys) -> None:
 
     with (case / "report.md").open("a", encoding="utf-8") as report:
         report.write("\nA late edit the reviewer never saw.\n")
-    assert main(["validate", case.name, "--strict"]) == 1
+    assert main(["validate", case.name, "--strict"]) == 0
+    assert "review.json is stale for report.md" in capsys.readouterr().out
+    assert main(["validate", case.name, "--strict", "--pinned"]) == 1
     assert "review.json is stale for report.md" in capsys.readouterr().out
 
 
@@ -46,7 +56,7 @@ def test_lorem_ipsum_with_reviewer_claude_fails_strict(
 ) -> None:
     """This exact filler passed the notes.md gate. evidence.json and review.json own it now."""
     monkeypatch.chdir(repo_root)
-    main(["init", "filler", "--local-only"])
+    main(["init", "filler", "--local-only", "--rigour", "decision"])
     case = next((repo_root / "research").iterdir())
     fill_with_lorem_ipsum(case)
     capsys.readouterr()

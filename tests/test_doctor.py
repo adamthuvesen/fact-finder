@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -215,3 +216,96 @@ def test_invalid_codex_file_or_disabled_goals_fails(
     assert main(["doctor"]) == 1
 
     assert message in capsys.readouterr().out
+
+
+def _point_at(repo: Path, server: str, url: str) -> None:
+    for path in (repo / ".mcp.json", repo / ".cursor" / "mcp.json"):
+        _edit_json(path, lambda d: d["mcpServers"][server].update(url=url))
+
+
+def test_a_declared_control_bundle_pointed_elsewhere_fails(repo, capsys) -> None:
+    enable_bundle(repo, "linear")
+    assert main(["doctor"]) == 0
+    capsys.readouterr()
+
+    _point_at(repo, "linear", "https://evil.example/mcp")
+
+    assert main(["doctor"]) == 1
+    output = capsys.readouterr().out
+    assert ".mcp.json differs from the bundle: url" in output
+    assert ".cursor/mcp.json differs from the bundle: url" in output
+
+
+@pytest.mark.parametrize(
+    ("bundle", "edit"),
+    [
+        ("stripe", lambda a: a.append("--api-key=x")),
+        ("stripe", lambda a: a.__setitem__(1, "@evil/mcp")),
+        ("azure", lambda a: a.remove("--read-only")),
+        ("posthog", lambda a: a.__setitem__(2, "https://evil.example/mcp")),
+    ],
+)
+def test_changed_or_added_args_fail(repo, bundle, edit) -> None:
+    enable_bundle(repo, bundle)
+    _edit_json(repo / ".mcp.json", lambda d: edit(d["mcpServers"][bundle]["args"]))
+
+    assert "fail" in _statuses(repo)[bundle]
+
+
+def test_a_placeholder_fill_cannot_change_the_host(repo) -> None:
+    enable_bundle(repo, "databricks")
+    _point_at(
+        repo,
+        "databricks",
+        "https://evil.example/x.cloud.databricks.com/api/2.0/mcp/genie",
+    )
+
+    assert "fail" in _statuses(repo)["databricks"]
+
+
+@pytest.mark.parametrize(
+    ("bundle", "field", "value"),
+    [
+        ("amplitude", "url", "https://mcp.eu.amplitude.com/mcp"),
+        ("mixpanel", "url", "https://mcp-in.mixpanel.com/mcp"),
+        (
+            "databricks",
+            "url",
+            "https://acme.cloud.databricks.com/api/2.0/mcp/genie/abc-1",
+        ),
+    ],
+)
+def test_setup_documented_urls_pass(repo, bundle, field, value) -> None:
+    enable_bundle(repo, bundle)
+    for path in (repo / ".mcp.json", repo / ".cursor" / "mcp.json"):
+        _edit_json(path, lambda d: d["mcpServers"][bundle].update({field: value}))
+    codex = repo / ".codex" / "config.toml"
+    codex.write_text(re.sub(r'(?m)^url = ".*"$', f'url = "{value}"', codex.read_text()))
+
+    assert "fail" not in _statuses(repo)[bundle]
+
+
+@pytest.mark.parametrize(
+    ("bundle", "edit"),
+    [
+        ("stripe", lambda a: a.__setitem__(2, "--tools=customers.read,invoices.read")),
+        ("azure", lambda a: a.extend(["--namespace", "monitor"])),
+        ("microsoft-365", lambda a: a.append("--allowed-scopes=Mail.Read")),
+        ("redshift", lambda a: a.__setitem__(0, "awslabs.redshift-mcp-server@1.2.3")),
+    ],
+)
+def test_setup_documented_args_pass(repo, bundle, edit) -> None:
+    enable_bundle(repo, bundle)
+    _edit_json(repo / ".mcp.json", lambda d: edit(d["mcpServers"][bundle]["args"]))
+
+    assert "fail" not in _statuses(repo)[bundle]
+
+
+def test_added_credentials_pass(repo) -> None:
+    enable_bundle(repo, "datadog")
+    _edit_json(
+        repo / ".mcp.json",
+        lambda d: d["mcpServers"]["datadog"].update(headers={"DD-API-KEY": "${KEY}"}),
+    )
+
+    assert "fail" not in _statuses(repo)["datadog"]

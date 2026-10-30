@@ -8,5 +8,10 @@
     "create_metric",
     "create_experiment",
     "create_feature_flag"
-  ]
+  ],
+  "alternatives": {
+    "https://mcp.amplitude.com/mcp": [
+      "https://mcp\\.eu\\.amplitude\\.com/mcp"
+    ]
+  }
 }

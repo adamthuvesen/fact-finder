@@ -3,5 +3,10 @@
   "url": "https://YOUR-WORKSPACE.cloud.databricks.com/api/2.0/mcp/genie",
   "placeholders": [
     "YOUR-WORKSPACE"
-  ]
+  ],
+  "alternatives": {
+    "https://YOUR-WORKSPACE.cloud.databricks.com/api/2.0/mcp/genie": [
+      "https://[^/\\s]+\\.cloud\\.databricks\\.com/api/2\\.0/mcp/genie/[\\w-]+"
+    ]
+  }
 }

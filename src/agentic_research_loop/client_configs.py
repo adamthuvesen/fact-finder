@@ -211,6 +211,15 @@ class ClientConfigs:
             document = self.claude_mcp if client == "claude" else self.cursor_mcp
             _child_object(document, "mcpServers").pop(server_name, None)
 
+    def _add_codex_disabled_tools(self, server: ServerDefinition) -> list[str]:
+        """Add write tools an engine-owned Codex entry lacks, keeping its other values."""
+        table = self._codex_servers()[server.server_name]
+        disabled: list[str] = list(table.get("disabled_tools", []))
+        added = [tool for tool in server.write_tools if tool not in disabled]
+        if added:
+            table["disabled_tools"] = [*disabled, *added]
+        return added
+
     def wire(self, server: ServerDefinition, owned: Wiring | None) -> WireResult:
         """Add what is missing, keep every existing value, and say what really changed.
 
@@ -237,6 +246,7 @@ class ClientConfigs:
         ]
         for client in added_clients:
             self._add_server(client, server)
+        added_codex = self._add_codex_disabled_tools(server)
         added_claude = _add_deny_rules(self.claude_settings, claude_deny_rules(server))
         added_cursor = _add_deny_rules(
             self.cursor_permissions, cursor_deny_rules(server)
@@ -254,7 +264,7 @@ class ClientConfigs:
         return WireResult(
             wiring=wiring,
             added_files=[CLIENT_FILES[client] for client in added_clients],
-            denied=bool(added_claude or added_cursor),
+            denied=bool(added_claude or added_cursor or added_codex),
         )
 
     def unwire(self, wiring: Wiring) -> None:

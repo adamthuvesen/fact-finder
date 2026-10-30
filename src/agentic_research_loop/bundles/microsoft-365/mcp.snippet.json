@@ -6,5 +6,8 @@
     "@softeria/ms-365-mcp-server",
     "--read-only",
     "--org-mode"
+  ],
+  "optional_args": [
+    "--allowed-scopes"
   ]
 }

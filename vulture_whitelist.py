@@ -10,5 +10,6 @@ resolution  # evidence.Objection field
 strongest_alternative  # evidence.Review field
 weakest_claim  # evidence.Review field
 fragile_dependency  # evidence.Review field
+accepted_at  # validation.Override field, written to overrides.json
 # decimal.localcontext reads this attribute.
 prec  # evidence._calculation_error

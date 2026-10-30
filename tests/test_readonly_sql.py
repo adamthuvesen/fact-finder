@@ -154,3 +154,52 @@ def test_unterminated_forms_are_rejected(sql: str) -> None:
 )
 def test_closed_dollar_and_backtick_forms_stay_allowed(sql: str) -> None:
     assert ReadOnlySql.parse(sql).statement_count == 1
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT 1 ->> DELETE FROM a.b.c",
+        "SHOW TABLES ->> DROP TABLE a.b.c",
+        "SHOW TABLES ->> GRANT ROLE a TO USER b",
+        "SELECT 1 ->> INSERT INTO t VALUES (1)",
+        "SELECT 1 ->> USE ROLE x",
+        "SELECT 1 ->> CALL p()",
+        "SELECT 1 ->> CREATE TABLE t (a INT)",
+        "SELECT 1 ->> SELECT 2",
+        "SELECT data ->> col FROM t",
+        "EXPLAIN SELECT 1 ->> DELETE FROM t",
+        "SHOW TABLES -> DROP TABLE t",
+        "SHOW TABLES |> DROP TABLE t",
+        "SELECT 1 DELETE FROM a",
+        "SELECT 1 >> DELETE FROM a",
+        "SELECT 1 || DELETE FROM a",
+        "SELECT 1 #>> DELETE FROM a",
+        "SELECT delete FROM t",
+    ],
+)
+def test_writes_the_parser_reads_as_reads_are_rejected(sql: str) -> None:
+    with pytest.raises(UnsafeSqlError):
+        ReadOnlySql.parse(sql)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "SELECT data->>'k' FROM t",
+        "SELECT data->>1 FROM t",
+        "SELECT '->> DROP TABLE t' AS note",
+        "SELECT data->'k' FROM t",
+        "SELECT FILTER(a, x -> x > 1) FROM t",
+        "FROM t |> SELECT a",
+        "SHOW TABLES LIKE '->> x'",
+        "SHOW CREATE TABLE t",
+        'SELECT "delete" FROM t',
+        "SELECT t.delete FROM t",
+        "SELECT INSERT('a', 1, 1, 'b')",
+        "SELECT TRUNCATE(1.5, 0)",
+        "SELECT 'DELETE FROM t' AS note",
+    ],
+)
+def test_json_operators_and_lookalike_names_stay_allowed(sql: str) -> None:
+    assert ReadOnlySql.parse(sql).statement_count == 1

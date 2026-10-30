@@ -11,6 +11,12 @@ MySQL runs `/*! ... */` as SQL, and engines disagree on whether block comments n
 string literal holding those characters is rejected too. That false positive is
 accepted, because the alternative is a missed write.
 
+sqlglot also reads some writes as reads, so tokens get checked too. Snowflake's `->>` flow
+operator runs a second statement, and T-SQL needs no semicolon between statements. sqlglot
+reads the `DELETE` in `SELECT 1 ->> DELETE FROM t` and `SELECT 1 DELETE FROM t` as a column
+or an alias. So `->>` must be followed by a literal, its JSON use. A bare statement keyword
+is rejected in any position. A column with such a name needs quotes or a table qualifier.
+
 This parser is defence in depth. It cannot detect `SELECT side_effect_proc()`:
 a function call looks the same whether or not the function writes. The read-only
 role on the connection is the real guard.
@@ -25,7 +31,7 @@ from functools import reduce
 from typing import Self
 
 import sqlglot
-from sqlglot import TokenType, exp
+from sqlglot import Token, TokenType, exp
 from sqlglot.dialects.dialect import Dialect
 from sqlglot.errors import ParseError, TokenError
 
@@ -76,6 +82,24 @@ NO_SQL_REASON = re.compile(r"^\s*--\s*no sql used:\s*(\S.*)$", re.IGNORECASE | r
 QUERY_ID = re.compile(r"^\s*query_id:\s*(\S+)\s*$", re.IGNORECASE)
 EXECUTABLE_COMMENT = re.compile(r"/\*M?!", re.IGNORECASE)
 NESTED_COMMENT = re.compile(r"/\*(?:(?!\*/).)*?/\*", re.DOTALL)
+STATEMENT_KEYWORDS = frozenset(
+    {
+        "ALTER",
+        "CALL",
+        "CREATE",
+        "DELETE",
+        "DROP",
+        "EXEC",
+        "EXECUTE",
+        "GRANT",
+        "INSERT",
+        "MERGE",
+        "REVOKE",
+        "TRUNCATE",
+        "UPDATE",
+    }
+)
+CHAINING_OPERATORS = (TokenType.ARROW, TokenType.PIPE_GT)
 BARE_EXPRESSIONS = (exp.Alias, exp.Anonymous, exp.Column)
 # A delimiter some dialects lack reads as plain text there, so those readings accept an
 # unterminated form. Tokenize it under a dialect that has the delimiter.
@@ -93,6 +117,62 @@ logging.getLogger("sqlglot").setLevel(logging.ERROR)
 
 class UnsafeSqlError(ValueError):
     """Raised when SQL does not parse or is not read-only under some reading."""
+
+
+def _is_quoted(token: Token) -> bool:
+    name = token.token_type.name
+    return name in {"IDENTIFIER", "STRING"} or name.endswith("_STRING")
+
+
+def _is_literal(token: Token) -> bool:
+    return token.token_type == TokenType.NUMBER or (
+        _is_quoted(token) and token.token_type != TokenType.IDENTIFIER
+    )
+
+
+def _is_statement_keyword(token: Token) -> bool:
+    return not _is_quoted(token) and token.text.upper() in STATEMENT_KEYWORDS
+
+
+def _is_bare_keyword(tokens: list[Token], index: int) -> bool:
+    """Tell a statement keyword from a function such as `INSERT(` or a name after `t.`."""
+    previous = tokens[index - 1] if index else None
+    following = tokens[index + 1] if index + 1 < len(tokens) else None
+    return (
+        _is_statement_keyword(tokens[index])
+        and (previous is None or previous.token_type != TokenType.DOT)
+        and (following is None or following.token_type != TokenType.L_PAREN)
+    )
+
+
+def _token_problem(sql: str, dialect: str, *, in_show: bool = False) -> str | None:
+    """Find what the parser reads as harmless: flow operators and bare keywords."""
+    tokens = Dialect.get_or_raise(dialect).tokenize(sql)
+    at_start = not in_show
+    for index, token in enumerate(tokens):
+        if token.token_type == TokenType.SEMICOLON:
+            at_start, in_show = True, False
+            continue
+        if at_start:
+            # `SHOW CREATE TABLE t` is a read.
+            in_show = token.text.upper() == "SHOW"
+            at_start = False
+        following = tokens[index + 1] if index + 1 < len(tokens) else None
+        if token.token_type == TokenType.DARROW and not (
+            following and _is_literal(following)
+        ):
+            return (
+                "uses ->> without a literal, which Snowflake runs as a second statement"
+            )
+        if (
+            token.token_type in CHAINING_OPERATORS
+            and following
+            and _is_statement_keyword(following)
+        ):
+            return f"chains {following.text.upper()} with {token.text}"
+        if not in_show and _is_bare_keyword(tokens, index):
+            return f"has a bare {token.text.upper()}; quote it if it is a column"
+    return None
 
 
 def _write_in_tree(statement: exp.Expr) -> str | None:
@@ -129,7 +209,10 @@ def _explain_problem(body: str, dialect: str) -> str | None:
 def _command_problem(command: exp.Command, dialect: str) -> str | None:
     verb = command.name.upper()
     if verb == "SHOW":
-        return None
+        try:
+            return _token_problem(command.text("expression"), dialect, in_show=True)
+        except TokenError:
+            return "SHOW has a body that does not tokenize"
     if verb == "EXPLAIN":
         return _explain_problem(command.text("expression"), dialect)
     return f"runs {verb}"
@@ -247,7 +330,9 @@ class ReadOnlySql:
         for dialect in DIALECTS:
             try:
                 statements = sqlglot.parse(text, dialect=dialect)
-                problem = _reading_problem(statements, dialect)
+                problem = _reading_problem(statements, dialect) or _token_problem(
+                    text, dialect
+                )
                 if problem is not None:
                     raise UnsafeSqlError(f"{dialect} reading: {problem}")
                 if _recognized(statements):

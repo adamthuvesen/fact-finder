@@ -11,6 +11,8 @@ import pytest
 from agentic_research_loop import client_configs as cc
 from agentic_research_loop import io as io_module
 from agentic_research_loop import source_bundles as sb
+from agentic_research_loop.doctor import run_doctor
+from agentic_research_loop.repo_setup import setup_repo
 from agentic_research_loop.sources import (
     OAuthClient,
     ServerDefinition,
@@ -217,6 +219,53 @@ def test_rewiring_keeps_user_values_and_restores_only_what_is_missing(repo):
     assert _claude(repo)["foo"]["headers"] == {"X": "mine"}
     assert _codex(repo)["foo"]["env"] == {"A": "1"}
     assert _cursor(repo)["foo"] == {"url": "https://foo.example/mcp"}
+
+
+def test_setup_adds_a_write_tool_a_wired_bundle_gained(repo):
+    sb.enable_bundle(repo, "foo")
+    codex = repo / ".codex" / "config.toml"
+    codex.write_text(codex.read_text() + '\n[mcp_servers.foo.env]\nA = "1"\n')
+    server_path = repo / "examples" / "sources" / "foo" / "mcp.snippet.json"
+    server_path.write_text(
+        json.dumps({**SERVER, "write_tools": ["delete_thing", "purge_thing"]})
+    )
+    (repo / "pyproject.toml").write_text("[tool.agentic-research-loop]\n")
+
+    actions = setup_repo(repo)
+
+    entry = _codex(repo)["foo"]
+    assert entry["disabled_tools"] == ["delete_thing", "purge_thing"]
+    assert entry["env"] == {"A": "1"}
+    assert "mcp__foo__purge_thing" in _deny(repo, ".claude/settings.json")
+    assert "Mcp(foo:purge_thing)" in _deny(repo, ".cursor/cli.json")
+    assert any("denied" in action for action in actions)
+    assert not [check for check in run_doctor(repo) if check.status == "fail"]
+    assert not any("denied" in action for action in setup_repo(repo))
+
+
+def test_doctor_message_is_true_when_setup_restores_codex_tools(repo):
+    sb.enable_bundle(repo, "foo")
+    codex = repo / ".codex" / "config.toml"
+    codex.write_text(
+        codex.read_text().replace('disabled_tools = ["delete_thing"]\n', "")
+    )
+    assert any("Run `research setup`" in c.message for c in run_doctor(repo))
+
+    setup_repo(repo)
+
+    assert not [check for check in run_doctor(repo) if check.status == "fail"]
+
+
+def test_setup_leaves_a_users_server_restriction_alone(repo):
+    """A user's server with the bundle's name is a collision, so nothing is written."""
+    codex = repo / ".codex" / "config.toml"
+    codex.write_text('[mcp_servers.foo]\nurl = "mine"\n')
+    before = _snapshot(repo)
+
+    with pytest.raises(SourceConfigError, match="was not added by research"):
+        sb.enable_bundle(repo, "foo")
+
+    assert _snapshot(repo) == before
 
 
 def test_disable_never_touches_a_server_it_did_not_add(repo):

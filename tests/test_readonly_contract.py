@@ -89,30 +89,57 @@ def test_shipped_snowflake_allowlist_is_read_only() -> None:
 _SKIP_DIRS = {
     ".git",
     ".venv",
+    ".verify",
     "__pycache__",
     ".ruff_cache",
     ".pytest_cache",
     "research",
 }
-# The decision record has to name the flags to explain why they are gone.
+# These files name the flags to forbid them.
 _BYPASS_FLAG_EXEMPT = {
     Path("tests/test_readonly_contract.py"),
     Path(".agents/docs/decisions/native-goals.md"),
+    Path("AGENTS.md"),
 }
+_BYPASS_FLAG = re.compile(
+    r"(?<![\w-])--(?:dangerously-skip-permissions|dangerously-bypass-approvals\S*"
+    r"|yolo|full-auto|force)(?![\w-])"
+)
+
+
+def _bypass_flag_offenders(root: Path) -> list[Path]:
+    return [
+        relative
+        for path in root.rglob("*")
+        if path.is_file()
+        and not _SKIP_DIRS & set(path.parts)
+        and (relative := path.relative_to(root)) not in _BYPASS_FLAG_EXEMPT
+        and _BYPASS_FLAG.search(path.read_text(encoding="utf-8", errors="ignore"))
+    ]
 
 
 def test_no_permission_bypass_flag_ships_anywhere() -> None:
     """The bypass flags existed only because the loop was headless."""
-    banned = ("dangerously-skip-permissions", "dangerously-bypass-approvals")
-    offenders = [
-        relative
-        for path in ROOT.rglob("*")
-        if path.is_file()
-        and not _SKIP_DIRS & set(path.parts)
-        and (relative := path.relative_to(ROOT)) not in _BYPASS_FLAG_EXEMPT
-        and any(
-            flag in path.read_text(encoding="utf-8", errors="ignore") for flag in banned
-        )
-    ]
+    assert _bypass_flag_offenders(ROOT) == []
 
-    assert offenders == []
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "codex --yolo",
+        "codex --full-auto",
+        "claude --force",
+        "claude --dangerously-skip-permissions",
+        "codex --dangerously-bypass-approvals-and-sandbox",
+    ],
+)
+def test_bypass_flag_scan_catches_each_flag(tmp_path: Path, command: str) -> None:
+    (tmp_path / "run.sh").write_text(command, encoding="utf-8")
+
+    assert _bypass_flag_offenders(tmp_path) == [Path("run.sh")]
+
+
+def test_bypass_flag_scan_ignores_lookalike_flags(tmp_path: Path) -> None:
+    (tmp_path / "run.sh").write_text("ruff --force-exclude", encoding="utf-8")
+
+    assert _bypass_flag_offenders(tmp_path) == []

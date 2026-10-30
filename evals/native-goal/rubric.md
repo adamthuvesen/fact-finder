@@ -22,9 +22,9 @@ scheduler change in `examples/local-sources/context/change-log.md` that moved
 heavy export jobs into business hours onto the shared queue. That is the largest
 cause.
 
-Weekly volume rises about 2% between the windows (mean 4,998.9 → 5,100), against
-an 8× rise in failures. Volume growth cannot account for the change and should be
-rejected on those numbers.
+Weekly job count rises about 2% between the windows (mean 4,998.9 → 5,100), against
+an 8× rise in failures per week. Growth in job count cannot account for the change and
+should be rejected on those numbers.
 
 ## Scoring
 

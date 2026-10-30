@@ -24,6 +24,7 @@ from .sources import LOCAL_FAMILY, load_registry, source_constraints
 from .templates import (
     NO_SOURCE_FAMILIES,
     RESEARCH_SHAPE,
+    RIGOUR,
     brief_template,
     goal_prompt,
     notes_template,
@@ -54,6 +55,7 @@ def _brief_text(
     template: str,
     constraints: list[str],
     families: list[str],
+    rigour: str,
 ) -> str:
     if supplied_brief is None:
         return brief_template(
@@ -62,6 +64,7 @@ def _brief_text(
             source_constraints=constraints,
             allowed_families=families,
             success_criteria=list(DEFAULT_SUCCESS_CRITERIA),
+            rigour=rigour,
         )
     brief = supplied_brief
     if RESEARCH_SHAPE.search(brief) is None:
@@ -69,6 +72,11 @@ def _brief_text(
         shape_line = f"- Research shape: `{template}`"
         brief = replace_markdown_section(
             brief, "Scope", f"{scope}\n{shape_line}" if scope else shape_line
+        )
+    if RIGOUR.search(brief) is None:
+        scope = extract_section(brief, "Scope") or ""
+        brief = replace_markdown_section(
+            brief, "Scope", f"{scope}\n- Rigour: `{rigour}`".strip()
         )
     if extract_section(brief, "Question") is None:
         brief = replace_markdown_section(brief, "Question", question)
@@ -93,6 +101,7 @@ def create_manual(
     source_hints: dict[str, str] | None = None,
     local_context_paths: list[str] | None = None,
     from_spec_path: Path | None = None,
+    rigour: str = "exploratory",
 ) -> ResearchInitResult:
     """Create a case atomically: write a temp directory, then rename it into place.
 
@@ -119,6 +128,7 @@ def create_manual(
         template=template,
         constraints=constraints,
         families=families,
+        rigour=rigour,
     )
     case_question = extract_section(brief, "Question") or question or slug
 
@@ -126,11 +136,13 @@ def create_manual(
     staging = Path(tempfile.mkdtemp(dir=parent, prefix=f".{case_id}."))
     try:
         write_text(brief_path(staging), brief)
-        write_text(evidence_path(staging), evidence_template(families))
+        if rigour == "decision":
+            write_text(evidence_path(staging), evidence_template(families))
         write_text(notes_path(staging), supplied.get("notes") or notes_template())
         write_text(
             report_path(staging),
-            supplied.get("report") or report_template(template, case_question),
+            supplied.get("report")
+            or report_template(template, case_question, rigour=rigour),
         )
         write_text(queries_path(staging), supplied.get("queries") or queries_template())
         write_text(
@@ -216,4 +228,8 @@ def render_goal(case_path: Path) -> str:
         if (stripped := line.strip()).startswith("-")
         and stripped.removeprefix("-").strip()
     ]
-    return goal_prompt(case_path, sources or ["No sources recorded in brief.md."])
+    match = RIGOUR.search(brief)
+    rigour = match.group(1).lower() if match else "decision"
+    return goal_prompt(
+        case_path, sources or ["No sources recorded in brief.md."], rigour=rigour
+    )

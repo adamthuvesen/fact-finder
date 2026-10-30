@@ -17,8 +17,7 @@ Run `./scripts/setup-dev.sh`. Its checker may fail until you finish personal aut
 - **Codex:** goals sit behind a flag. `research setup` and `research source enable` write
   `[features] goals = true` into `.codex/config.toml`. Confirm with `codex features list`.
 
-There are no permission-bypass flags anywhere in this repo. The goal runs in your
-interactive session, so tool permissions prompt normally. That is the point.
+There are no permission-bypass flags in this repo, so tool permissions prompt normally.
 
 ## Sources
 

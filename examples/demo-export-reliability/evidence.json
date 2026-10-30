@@ -9,7 +9,7 @@
       "accessed_at": "2026-08-17T09:00:00Z",
       "independence_group": "weekly-export-aggregate",
       "artifact": "evidence/windows.json",
-      "sha256": "a7664d52e40a28e0a131390bff664db6a52c2d63c2bb6dfd0a1bafb837b5e335"
+      "sha256": "a69737c52d9bbd461d28b5f8080c34a856f53e6d94a370fd5d0695dbd04afcda"
     },
     {
       "id": "S2",
@@ -52,13 +52,16 @@
     },
     {
       "id": "C2",
-      "statement": "Scheduled volume per week rose only about 2% between the windows.",
+      "statement": "Scheduled jobs per week rose about 2% between the windows.",
       "kind": "descriptive",
       "source_ids": [
         "S1"
       ],
-      "calculation_ids": [],
+      "calculation_ids": [
+        "V1"
+      ],
       "limitations": [
+        "Job counts do not measure job size or mix.",
         "Weekly means hide within-week peaks."
       ],
       "status": "supported",
@@ -71,7 +74,9 @@
       "source_ids": [
         "S1"
       ],
-      "calculation_ids": [],
+      "calculation_ids": [
+        "Q1"
+      ],
       "limitations": [
         "A weekly mean, not a peak measure."
       ],
@@ -80,7 +85,7 @@
     },
     {
       "id": "C4",
-      "statement": "The scheduler change that moved heavy exports into business hours caused the loss through queue contention.",
+      "statement": "The scheduler change is the leading explanation for the loss, through queue contention, but this case does not identify it as the cause.",
       "kind": "causal",
       "source_ids": [
         "S1",
@@ -88,10 +93,43 @@
       ],
       "calculation_ids": [],
       "limitations": [
-        "Timing and mechanism come from one aggregate file and one operational note, not an audited config diff or a controlled comparison."
+        "One weekly series with no control group or holdout.",
+        "Timing and queue minutes come from one aggregate file, and a change in job mix cannot be excluded.",
+        "The change log is an operational note, not an audited configuration diff."
+      ],
+      "status": "inconclusive",
+      "report_marker": "[C4]"
+    },
+    {
+      "id": "C5",
+      "statement": "Failures rose from 100 to 816 per week, an 8.16-fold rise (+716%).",
+      "kind": "descriptive",
+      "source_ids": [
+        "S1"
+      ],
+      "calculation_ids": [
+        "F1"
+      ],
+      "limitations": [
+        "The windows differ in length, so totals are not comparable."
       ],
       "status": "supported",
-      "report_marker": "[C4]"
+      "report_marker": "[C5]"
+    },
+    {
+      "id": "C6",
+      "statement": "Revert the schedule first and test queue isolation later, because this data cannot compare the two options.",
+      "kind": "descriptive",
+      "source_ids": [
+        "S1",
+        "S2"
+      ],
+      "calculation_ids": [],
+      "limitations": [
+        "The data holds no measure of an isolated queue or of the on-call benefit a revert gives up."
+      ],
+      "status": "inconclusive",
+      "report_marker": "[C6]"
     }
   ],
   "calculations": [
@@ -180,6 +218,72 @@
       "result": "25500",
       "unit": "jobs",
       "tolerance": "0"
+    },
+    {
+      "id": "F1",
+      "operation": "ratio",
+      "inputs": [
+        {
+          "name": "post",
+          "value": "816",
+          "unit": "jobs_per_week",
+          "source_id": "S1"
+        },
+        {
+          "name": "pre",
+          "value": "100",
+          "unit": "jobs_per_week",
+          "source_id": "S1"
+        }
+      ],
+      "result": "8.16",
+      "unit": "ratio",
+      "tolerance": "0",
+      "denominator": "pre"
+    },
+    {
+      "id": "V1",
+      "operation": "ratio",
+      "inputs": [
+        {
+          "name": "post",
+          "value": "5100",
+          "unit": "jobs_per_week",
+          "source_id": "S1"
+        },
+        {
+          "name": "pre",
+          "value": "4998.89",
+          "unit": "jobs_per_week",
+          "source_id": "S1"
+        }
+      ],
+      "result": "1.0202",
+      "unit": "ratio",
+      "tolerance": "0.0001",
+      "denominator": "pre"
+    },
+    {
+      "id": "Q1",
+      "operation": "ratio",
+      "inputs": [
+        {
+          "name": "post",
+          "value": "42",
+          "unit": "minutes",
+          "source_id": "S1"
+        },
+        {
+          "name": "pre",
+          "value": "8",
+          "unit": "minutes",
+          "source_id": "S1"
+        }
+      ],
+      "result": "5.25",
+      "unit": "ratio",
+      "tolerance": "0",
+      "denominator": "pre"
     }
   ]
 }

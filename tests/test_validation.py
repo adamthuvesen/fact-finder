@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import textwrap
 from pathlib import Path
 
@@ -13,30 +14,44 @@ from support.cases import (
     fill_case,
     write_review,
 )
+from support.checks import validate_case
 
 from agentic_research_loop.templates import (
+    EXPLORATORY_LABEL,
     PLACEHOLDER,
     notes_template,
     queries_template,
     report_template,
     source_objects_template,
 )
-from agentic_research_loop.validation import parse_source_objects, validate_case
+from agentic_research_loop.validation import (
+    accept_findings,
+    assess_case,
+    parse_source_objects,
+)
 
 
 def build_case(tmp_path: Path, **artifacts: str) -> Path:
     return fill_case(tmp_path / "2026-08-17-exports", **artifacts)
 
 
+def warnings_of(case: Path) -> list[str]:
+    return assess_case(case, strict_completion=True).warnings
+
+
 def test_complete_case_passes_strict(tmp_path: Path) -> None:
     assert validate_case(build_case(tmp_path), strict_completion=True) == []
 
 
-def test_missing_artifact_is_reported(tmp_path: Path) -> None:
+def test_missing_report_blocks_and_missing_notes_warn(tmp_path: Path) -> None:
     case = build_case(tmp_path)
-    (case / "source-objects.md").unlink()
+    (case / "notes.md").unlink()
+    assert validate_case(case, strict_completion=True) == []
+    assert "Missing file: notes.md" in warnings_of(case)
 
-    assert "Missing required file: source-objects.md" in validate_case(case)
+    (case / "report.md").unlink()
+
+    assert "Missing file: report.md" in validate_case(case)
 
 
 def test_notes_carry_no_gate(tmp_path: Path) -> None:
@@ -74,20 +89,17 @@ def test_use_warehouse_is_allowed_because_the_shipped_allowlist_permits_it(
     assert validate_case(case, strict_completion=True) == []
 
 
-def test_strict_requires_preserved_sql_or_a_stated_reason(tmp_path: Path) -> None:
+def test_missing_sql_reason_warns(tmp_path: Path) -> None:
     case = build_case(tmp_path, queries="-- nothing preserved here\n")
 
-    errors = validate_case(case, strict_completion=True)
+    assert validate_case(case, strict_completion=True) == []
+    assert any("No SQL used" in warning for warning in warnings_of(case))
 
-    assert any("No SQL used" in error for error in errors)
 
-
-def test_strict_rejects_a_placeholder_question(tmp_path: Path) -> None:
+def test_placeholder_question_warns(tmp_path: Path) -> None:
     case = build_case(tmp_path, brief=BRIEF.replace(QUESTION, "Research: exports"))
 
-    errors = validate_case(case, strict_completion=True)
-
-    assert any("specific research question" in error for error in errors)
+    assert any("specific research question" in warning for warning in warnings_of(case))
 
 
 def test_strict_rejects_an_unwritten_report_section(tmp_path: Path) -> None:
@@ -114,17 +126,19 @@ def test_real_text_containing_explain_why_passes(tmp_path: Path) -> None:
     assert validate_case(case, strict_completion=True) == []
 
 
-def test_root_cause_brief_needs_its_design_sections(tmp_path: Path) -> None:
+def test_root_cause_design_sections_warn(tmp_path: Path) -> None:
     case = build_case(tmp_path, brief=BRIEF.replace("`exploration`", "`root-cause`"))
 
-    errors = validate_case(case)
+    warnings = warnings_of(case)
 
-    assert any("Hypotheses" in error for error in errors)
-    assert any("Known Confounders" in error for error in errors)
-    assert any("Required Cross-Checks" in error for error in errors)
+    assert any("Hypotheses" in warning for warning in warnings)
+    assert any("Known Confounders" in warning for warning in warnings)
+    assert any("Required Cross-Checks" in warning for warning in warnings)
 
 
-def test_high_priority_thread_needs_a_discriminating_test(tmp_path: Path) -> None:
+def test_high_priority_thread_without_a_discriminating_test_warns(
+    tmp_path: Path,
+) -> None:
     brief = BRIEF.replace("`exploration`", "`root-cause`") + textwrap.dedent("""
         ## Hypotheses
 
@@ -152,16 +166,29 @@ def test_high_priority_thread_needs_a_discriminating_test(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    errors = validate_case(case)
-
-    assert any("Discriminating Test" in error for error in errors)
+    assert any("Discriminating Test" in warning for warning in warnings_of(case))
 
 
-def test_committed_demo_case_passes_strict_validation() -> None:
-    """The shipped example is the reference output shape; it has to clear the gate."""
-    demo = Path(__file__).resolve().parents[1] / "examples" / "demo-export-reliability"
+DEMO = Path(__file__).resolve().parents[1] / "examples" / "demo-export-reliability"
 
-    assert validate_case(demo, strict_completion=True) == []
+
+def test_demo_passes_with_its_review_pinned() -> None:
+    assert assess_case(DEMO, strict_completion=True, pinned=True).errors == []
+
+
+@pytest.mark.parametrize(
+    "name", ["brief.md", "report.md", "queries.sql", "evidence/windows.json"]
+)
+def test_a_demo_edit_makes_its_review_stale(tmp_path: Path, name: str) -> None:
+    case = tmp_path / "demo"
+    shutil.copytree(DEMO, case)
+    with (case / name).open("a", encoding="utf-8") as handle:
+        handle.write("\n")
+
+    assert any(
+        f"stale for {name}" in error
+        for error in assess_case(case, strict_completion=True, pinned=True).errors
+    )
 
 
 def test_untouched_shipped_templates_fail_the_completion_gate(tmp_path: Path) -> None:
@@ -176,13 +203,11 @@ def test_untouched_shipped_templates_fail_the_completion_gate(tmp_path: Path) ->
     errors = validate_case(case, strict_completion=True)
 
     assert any("Executive Summary" in error for error in errors)
-    assert any("source-objects.md" in error for error in errors)
-    assert any("No SQL used" in error for error in errors)
+    assert any("source-objects.md" in warning for warning in warnings_of(case))
+    assert any("No SQL used" in warning for warning in warnings_of(case))
 
 
-def test_an_unreadable_research_shape_is_an_error_not_a_silent_skip(
-    tmp_path: Path,
-) -> None:
+def test_an_unreadable_research_shape_warns(tmp_path: Path) -> None:
     case = build_case(
         tmp_path,
         brief=BRIEF.replace(
@@ -190,15 +215,15 @@ def test_an_unreadable_research_shape_is_an_error_not_a_silent_skip(
         ),
     )
 
-    assert any("unknown research shape" in error for error in validate_case(case))
+    assert any("unknown research shape" in warning for warning in warnings_of(case))
 
 
-def test_missing_research_shape_is_reported(tmp_path: Path) -> None:
+def test_missing_research_shape_warns(tmp_path: Path) -> None:
     case = build_case(
         tmp_path, brief=BRIEF.replace("- Research shape: `exploration`\n", "")
     )
 
-    assert any("Research shape" in error for error in validate_case(case))
+    assert any("Research shape" in warning for warning in warnings_of(case))
 
 
 @pytest.mark.parametrize(
@@ -217,7 +242,7 @@ def test_research_shape_survives_bold_and_trailing_text(
         tmp_path, brief=BRIEF.replace("- Research shape: `exploration`", shape_line)
     )
 
-    assert any("Hypotheses" in error for error in validate_case(case))
+    assert any("Hypotheses" in warning for warning in warnings_of(case))
 
 
 def test_select_into_is_rejected(tmp_path: Path) -> None:
@@ -228,13 +253,11 @@ def test_select_into_is_rejected(tmp_path: Path) -> None:
     assert any("INTO" in error for error in validate_case(case))
 
 
-def test_coverage_must_match_the_allowed_families(tmp_path: Path) -> None:
+def test_coverage_mismatch_warns(tmp_path: Path) -> None:
     case = build_case(tmp_path, brief=BRIEF.replace("\nlocal\n", "\nlocal, slack\n"))
+    write_review(case)
 
-    assert any(
-        "Allowed Source Families" in error
-        for error in validate_case(case, strict_completion=True)
-    )
+    assert any("Allowed Source Families" in warning for warning in warnings_of(case))
 
 
 # --- source-objects.md is parsed as structure ------------------------------------
@@ -264,25 +287,25 @@ def test_source_objects_parse_into_locator_and_date() -> None:
         "- `db.table` (accessed 2026-13-99)",
     ],
 )
-def test_malformed_source_object_fails(tmp_path: Path, entry: str) -> None:
+def test_plain_source_object_warns_and_does_not_block(
+    tmp_path: Path, entry: str
+) -> None:
     case = build_case(tmp_path, source_objects=f"{SOURCE_OBJECTS}{entry}\n")
     write_review(case)
 
-    assert any(
-        "source-objects.md" in error
-        for error in validate_case(case, strict_completion=True)
-    )
+    assert validate_case(case, strict_completion=True) == []
+    assert any("source-objects.md" in warning for warning in warnings_of(case))
 
 
-def test_evidence_locator_must_be_listed_in_source_objects(tmp_path: Path) -> None:
+def test_unlisted_evidence_locator_warns(tmp_path: Path) -> None:
     case = build_case(
         tmp_path,
         source_objects="# Source Objects\n\n- `other.table` (accessed 2026-08-17)\n",
     )
+    write_review(case)
 
     assert any(
-        "is not listed in source-objects.md" in error
-        for error in validate_case(case, strict_completion=True)
+        "is not listed in source-objects.md" in warning for warning in warnings_of(case)
     )
 
 
@@ -348,3 +371,148 @@ def test_sql_backed_family_recorded_as_not_used_needs_no_query(tmp_path: Path) -
     write_review(case)
 
     assert validate_case(case, strict_completion=True) == []
+
+
+# --- Safety is hard. Rigour is a default a person can override. --------------------------
+
+
+EXPLORATORY_BRIEF = BRIEF.replace(
+    "- Research shape: `exploration`",
+    "- Research shape: `exploration`\n- Rigour: `exploratory`",
+)
+EXPLORATORY_REPORT = f"""# Report
+
+{EXPLORATORY_LABEL}
+
+## Executive Summary
+
+Failures rose from 100 to 412 a week in June, after the June 3 scheduler change.
+"""
+
+
+def _exploratory_case(tmp_path: Path, **artifacts: str) -> Path:
+    case = tmp_path / "2026-08-17-quick"
+    case.mkdir()
+    (case / "brief.md").write_text(EXPLORATORY_BRIEF, encoding="utf-8")
+    (case / "report.md").write_text(
+        artifacts.get("report", EXPLORATORY_REPORT), encoding="utf-8"
+    )
+    (case / "queries.sql").write_text(artifacts.get("queries", ""), encoding="utf-8")
+    return case
+
+
+def test_exploratory_case_passes_with_only_a_labelled_answer(tmp_path: Path) -> None:
+    result = assess_case(_exploratory_case(tmp_path), strict_completion=True)
+
+    assert result.errors == []
+    assert result.rigour == "exploratory"
+    assert "no independent review" in result.label
+
+
+def test_exploratory_report_without_its_label_blocks(tmp_path: Path) -> None:
+    """A reader who gets only report.md must not mistake it for a reviewed answer."""
+    report = EXPLORATORY_REPORT.replace(EXPLORATORY_LABEL, "")
+    case = _exploratory_case(tmp_path, report=report)
+
+    assert any(
+        "label line" in error for error in validate_case(case, strict_completion=True)
+    )
+
+
+def test_exploratory_wrong_arithmetic_still_blocks(tmp_path: Path) -> None:
+    case = fill_case(
+        tmp_path / "case", brief=EXPLORATORY_BRIEF, report=REPORT + EXPLORATORY_LABEL
+    )
+    document = json.loads((case / "evidence.json").read_text(encoding="utf-8"))
+    document["calculations"][0]["result"] = "1"
+    (case / "evidence.json").write_text(json.dumps(document), encoding="utf-8")
+
+    assert any(
+        "does not reconcile" in error
+        for error in validate_case(case, strict_completion=True)
+    )
+
+
+@pytest.mark.parametrize("build", [_exploratory_case, build_case])
+def test_write_sql_blocks_and_cannot_be_accepted(tmp_path: Path, build) -> None:
+    case = build(tmp_path, queries="DROP TABLE t;\n")
+
+    assert accept_findings(case, "I really want this") == []
+
+    assert any("not read-only" in error for error in validate_case(case))
+    assert any(
+        "not read-only" in error
+        for error in validate_case(case, strict_completion=True)
+    )
+    assert not (case / "overrides.json").exists()
+
+
+def test_artifact_outside_the_case_blocks_and_cannot_be_accepted(
+    tmp_path: Path,
+) -> None:
+    case = build_case(tmp_path)
+    document = json.loads((case / "evidence.json").read_text(encoding="utf-8"))
+    document["sources"][0]["artifact"] = "../outside.json"
+    (case / "evidence.json").write_text(json.dumps(document), encoding="utf-8")
+
+    accept_findings(case, "accept it")
+
+    assert any(
+        "unsafe case artifact" in e for e in validate_case(case, strict_completion=True)
+    )
+
+
+def test_decision_case_without_a_review_blocks_until_accepted(tmp_path: Path) -> None:
+    case = build_case(tmp_path)
+    (case / "review.json").unlink()
+    assert any(
+        "Missing review.json" in e for e in validate_case(case, strict_completion=True)
+    )
+
+    accepted = accept_findings(case, "VP needs it today")
+
+    result = assess_case(case, strict_completion=True)
+    assert result.errors == []
+    assert any("Missing review.json" in item for item in accepted)
+    assert "because VP needs it today" in result.label
+    record = json.loads((case / "overrides.json").read_text(encoding="utf-8"))
+    assert record["overrides"][0]["reason"] == "VP needs it today"
+
+
+def test_an_override_does_not_cover_a_new_problem(tmp_path: Path) -> None:
+    case = build_case(tmp_path)
+    (case / "review.json").unlink()
+    accept_findings(case, "VP needs it today")
+    (case / "report.md").write_text("# Empty\n", encoding="utf-8")
+
+    assert any(
+        "Executive Summary" in e for e in validate_case(case, strict_completion=True)
+    )
+
+
+def test_blank_override_reason_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="reason"):
+        accept_findings(build_case(tmp_path), "  ")
+
+
+def test_stale_review_warns_and_is_labelled_unless_pinned(tmp_path: Path) -> None:
+    case = build_case(tmp_path)
+    with (case / "report.md").open("a", encoding="utf-8") as handle:
+        handle.write("\nA small edit.\n")
+
+    result = assess_case(case, strict_completion=True)
+    assert result.errors == []
+    assert any("stale for report.md" in warning for warning in result.warnings)
+    assert "predates the latest edits" in result.label
+
+    pinned = assess_case(case, strict_completion=True, pinned=True)
+    assert any("stale for report.md" in error for error in pinned.errors)
+
+
+def test_blocked_review_verdict_blocks_a_decision_case(tmp_path: Path) -> None:
+    case = build_case(tmp_path)
+    write_review(case, verdict="blocked")
+
+    assert any(
+        "verdict is blocked" in e for e in validate_case(case, strict_completion=True)
+    )

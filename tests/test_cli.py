@@ -12,7 +12,6 @@ from agentic_research_loop.research import resolve_case_path
 
 CASE_FILES = (
     "brief.md",
-    "evidence.json",
     "notes.md",
     "report.md",
     "queries.sql",
@@ -34,6 +33,20 @@ def test_init_creates_the_case_artifacts(repo_root: Path, monkeypatch) -> None:
     assert case_path.name.endswith("regional-comparison")
     for name in CASE_FILES:
         assert (case_path / name).exists(), name
+    assert not (case_path / "evidence.json").exists()
+
+
+def test_decision_init_scaffolds_the_evidence_manifest(
+    repo_root: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(repo_root)
+
+    case_path = _init(repo_root, "big-call", "--rigour", "decision")
+
+    assert (case_path / "evidence.json").exists()
+    assert "- Rigour: `decision`" in (case_path / "brief.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_init_creates_no_machine_state(repo_root: Path, monkeypatch) -> None:
@@ -193,7 +206,7 @@ def test_goal_uses_absolute_paths_and_the_validation_gate(
     """A goal handed relative paths can write a correct answer into the wrong
     directory and still look finished. Every path in the contract is absolute."""
     monkeypatch.chdir(repo_root)
-    case_path = _init(repo_root, "absolute-paths", "--template", "exploration")
+    case_path = _init(repo_root, "absolute-paths", "--rigour", "decision")
     capsys.readouterr()
 
     assert main(["goal", case_path.name]) == 0
@@ -244,16 +257,16 @@ def test_validate_passes_on_a_fresh_case(repo_root: Path, monkeypatch, capsys) -
     assert "Validation passed" in capsys.readouterr().out
 
 
-def test_validate_reports_a_missing_artifact(
+def test_validate_reports_a_missing_report(
     repo_root: Path, monkeypatch, capsys
 ) -> None:
     monkeypatch.chdir(repo_root)
     case_path = _init(repo_root, "missing-artifact", "--template", "exploration")
-    (case_path / "source-objects.md").unlink()
+    (case_path / "report.md").unlink()
     capsys.readouterr()
 
     assert main(["validate", case_path.name]) == 1
-    assert "Missing required file: source-objects.md" in capsys.readouterr().out
+    assert "Missing file: report.md" in capsys.readouterr().out
 
 
 def test_resolve_case_path_ambiguous(repo_root: Path, monkeypatch) -> None:
@@ -322,7 +335,7 @@ def test_list_shows_each_case_with_its_status(
     assert main(["list"]) == 0
 
     lines = dict(line.split() for line in capsys.readouterr().out.splitlines())
-    assert lines["2026-08-17-filled"] == "complete"
+    assert lines["2026-08-17-filled"] == "decision-complete"
     assert lines["2026-08-18-broken"] == "invalid"
     assert (
         next(v for k, v in lines.items() if k.endswith("scaffolded")) == "in-progress"
@@ -347,7 +360,7 @@ def test_review_snapshot_prints_hashes_and_approves_nothing(
     repo_root: Path, monkeypatch, capsys
 ) -> None:
     monkeypatch.chdir(repo_root)
-    case_path = _init(repo_root, "snapshot")
+    case_path = _init(repo_root, "snapshot", "--rigour", "decision")
     capsys.readouterr()
 
     assert main(["review-snapshot", case_path.name]) == 0
@@ -401,22 +414,29 @@ def _root_cause_case_with_bad_plan(repo_root: Path) -> Path:
     return case_path
 
 
-def test_validate_json_is_valid_for_a_non_utf8_plan(
+def test_validate_json_is_valid_for_a_non_utf8_report(
     repo_root, monkeypatch, capsys
 ) -> None:
     monkeypatch.chdir(repo_root)
     case_path = _root_cause_case_with_bad_plan(repo_root)
     capsys.readouterr()
 
-    assert main(["validate", case_path.name, "--json"]) == 1
+    assert main(["validate", case_path.name, "--json"]) == 0
 
-    assert "plan.md" in json.loads(capsys.readouterr().out)["errors"][-1]
+    payload = json.loads(capsys.readouterr().out)
+    assert any("plan.md" in item for item in payload["warnings"])
+    (case_path / "report.md").write_bytes(b"\xff\xfe not utf8")
+    assert main(["validate", case_path.name, "--json"]) == 1
+    assert any(
+        "report.md" in item for item in json.loads(capsys.readouterr().out)["errors"]
+    )
 
 
 def test_one_bad_case_does_not_abort_list(repo_root, monkeypatch, capsys) -> None:
     monkeypatch.chdir(repo_root)
-    _root_cause_case_with_bad_plan(repo_root)
-    deep = _init(repo_root, "deep-evidence")
+    bad = _init(repo_root, "bad-report")
+    (bad / "report.md").write_bytes(b"\xff\xfe not utf8")
+    deep = _init(repo_root, "deep-evidence", "--rigour", "decision")
     (deep / "evidence.json").write_text("[" * 200000, encoding="utf-8")
     _init(repo_root, "fine")
     capsys.readouterr()
@@ -424,14 +444,14 @@ def test_one_bad_case_does_not_abort_list(repo_root, monkeypatch, capsys) -> Non
     assert main(["list"]) == 0
 
     lines = dict(line.split() for line in capsys.readouterr().out.splitlines())
-    assert sorted(lines.values()) == ["in-progress", "invalid", "invalid"]
+    assert sorted(lines.values()) == ["in-progress", "in-progress", "invalid"]
 
 
 def test_deep_evidence_snapshot_is_a_clean_error(
     repo_root, monkeypatch, capsys
 ) -> None:
     monkeypatch.chdir(repo_root)
-    case_path = _init(repo_root, "deep-snapshot")
+    case_path = _init(repo_root, "deep-snapshot", "--rigour", "decision")
     (case_path / "evidence.json").write_text("[" * 200000, encoding="utf-8")
     capsys.readouterr()
 
@@ -510,3 +530,56 @@ def test_from_spec_keeps_the_briefs_own_shape(repo_root, monkeypatch) -> None:
     )
 
     assert "root-cause" not in (case_path / "brief.md").read_text(encoding="utf-8")
+
+
+def test_quick_answer_needs_very_little_ceremony(
+    repo_root, monkeypatch, capsys
+) -> None:
+    """Question to a passing, labelled answer: init, write report.md, validate."""
+    monkeypatch.chdir(repo_root)
+    case_path = _init(
+        repo_root, "quick", "--question", "Did exports fail more in June?"
+    )
+    report = case_path / "report.md"
+    report.write_text(
+        report.read_text(encoding="utf-8").replace(
+            "<!-- research:placeholder --> Complete this section with the answer and the most "
+            "decision-relevant evidence.",
+            "Yes. Failures rose from 100 to 412 a week after the June 3 scheduler change.",
+        ),
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+
+    assert main(["validate", case_path.name, "--strict"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Exploratory answer: no independent review." in output
+    assert "Warning:" in output
+    assert "exploratory-complete" in (main(["list"]), capsys.readouterr().out)[1]
+
+
+def test_accept_flag_records_and_labels(repo_root, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(repo_root)
+    case = fill_case(repo_root / "research" / "2026-08-17-filled")
+    (case / "review.json").unlink()
+    capsys.readouterr()
+
+    assert main(["validate", case.name, "--strict"]) == 1
+    assert main(["validate", case.name, "--strict", "--accept", "needed today"]) == 0
+
+    assert "because needed today" in capsys.readouterr().out
+    assert (case / "overrides.json").exists()
+    assert main(["validate", case.name, "--strict"]) == 0
+    capsys.readouterr()
+    assert main(["list"]) == 0
+    assert "decision-accepted" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("flag", [["--pinned"], ["--accept", "x"]])
+def test_rigour_flags_need_strict(repo_root, monkeypatch, capsys, flag) -> None:
+    monkeypatch.chdir(repo_root)
+    case_path = _init(repo_root, "flags")
+
+    assert main(["validate", case_path.name, *flag]) == 1
+    assert "need --strict" in capsys.readouterr().err

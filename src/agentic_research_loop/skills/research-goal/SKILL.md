@@ -20,7 +20,8 @@ The `research` CLI is internal plumbing. Execution stays inside the current sess
 1. Work from the repository root.
 2. Resolve an existing case with `uv run research goal <case>`, or scaffold one with
    `uv run research init <slug> --question "<specific question>" --template <exploration|root-cause|comparison>`.
-   Narrow sources with `--sources a,b`, focus one with `--source-hint a=TEXT`, attach
+   Add `--rigour decision` when the answer drives a decision that matters. The default is a
+   labelled exploratory answer with no evidence manifest or review. Narrow sources with `--sources a,b`, focus one with `--source-hint a=TEXT`, attach
    local files with `--context-path PATH`, or use `--local-only`. Check what is wired
    with `uv run research source list`.
 3. Read `brief.md`. Resolve placeholders that would materially change the answer. Do
@@ -30,8 +31,8 @@ The `research` CLI is internal plumbing. Execution stays inside the current sess
 
 ## Execution mode
 
-Run `uv run research contract method` and `uv run research contract evidence`, and follow
-both. Treat the generated contract as the operating instructions for the active goal. Do
+Run `uv run research contract method` and follow it. For a decision case, also follow
+`uv run research contract evidence`. Treat the generated contract as the operating instructions for the active goal. Do
 not submit it as a nested slash command, return it to the user, or stop after
 scaffolding. Continue immediately with the research, and finish with the validation
 result and conclusion in your final response.

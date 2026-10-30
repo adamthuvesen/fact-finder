@@ -9,10 +9,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, DecimalException, localcontext
 from pathlib import Path, PurePosixPath
-from typing import Annotated, Literal, Self
+from typing import Annotated, Literal, Self, cast
 
 from pydantic import (
     Field,
@@ -22,7 +23,7 @@ from pydantic import (
 )
 
 from .io import read_text
-from .layout import evidence_path, queries_path, report_path, review_path
+from .layout import as_table, evidence_path, queries_path, report_path, review_path
 from .readonly_sql import ReadOnlySql, UnsafeSqlError
 from .strict_model import StrictModel
 
@@ -77,6 +78,31 @@ _GENERIC_REVIEWER_WORDS = frozenset(
 )
 _SELF_REVIEWER_WORDS = frozenset({"me", "self", "tbd", "todo", "unknown"})
 SCAFFOLD_COVERAGE_REASON = "Source discovery has not run."
+
+
+STALE_REVIEW = "review.json is stale"
+ACCEPTED_GAPS_START = "<!-- research:accepted-gaps:start -->"
+ACCEPTED_GAPS_END = "<!-- research:accepted-gaps:end -->"
+ACCEPTED_GAPS_BLOCK = re.compile(
+    r"\n?"
+    + re.escape(ACCEPTED_GAPS_START)
+    + r".*?"
+    + re.escape(ACCEPTED_GAPS_END)
+    + r"\n?",
+    re.DOTALL,
+)
+# How a validation finding behaves. `safety` and `structure` always block. `answer`, `wrong`,
+# and `contract` block a completion check by policy. `stale` blocks only on request, and
+# `format` never blocks. See `validation.assess_case`.
+FindingKind = Literal[
+    "safety", "structure", "answer", "wrong", "contract", "stale", "format"
+]
+
+
+@dataclass(frozen=True)
+class Finding:
+    kind: FindingKind
+    message: str
 
 
 def reviewer_is_named(reviewer: str) -> bool:
@@ -322,6 +348,10 @@ def declared_query_ids(case_path: Path) -> frozenset[str]:
         return frozenset()
 
 
+class UnsafeArtifactPathError(ValueError):
+    """Raised when an artifact path would read outside the case. This is safety, not rigour."""
+
+
 def _case_file(case_path: Path, name: str) -> Path:
     relative = PurePosixPath(name)
     # `./x` and `a//b` would hash the same file under a second name.
@@ -331,17 +361,25 @@ def _case_file(case_path: Path, name: str) -> Path:
         or "\\" in name
         or relative.as_posix() != name
     ):
-        raise ValueError(f"unsafe case artifact path: {name}")
+        raise UnsafeArtifactPathError(f"unsafe case artifact path: {name}")
     path = (case_path / name).resolve()
     if not path.is_relative_to(case_path.resolve()):
-        raise ValueError(f"case artifact escapes case directory: {name}")
+        raise UnsafeArtifactPathError(f"case artifact escapes case directory: {name}")
     if not path.is_file():
         raise ValueError(f"missing case artifact: {name}")
     return path
 
 
+def without_accepted_gaps(report: str) -> str:
+    """Remove the block `--accept` writes. It is not part of what a reviewer judged."""
+    return ACCEPTED_GAPS_BLOCK.sub("", report)
+
+
 def _digest(case_path: Path, name: str) -> str:
-    return hashlib.sha256(_case_file(case_path, name).read_bytes()).hexdigest()
+    content = _case_file(case_path, name).read_bytes()
+    if name == "report.md" and ACCEPTED_GAPS_START.encode() in content:
+        content = without_accepted_gaps(content.decode("utf-8")).encode("utf-8")
+    return hashlib.sha256(content).hexdigest()
 
 
 def _unique_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -410,98 +448,162 @@ def _calculation_error(calculation: Calculation) -> str | None:
     return None
 
 
-def _source_errors(case_path: Path, evidence: Evidence) -> list[str]:
-    errors: list[str] = []
+def _source_findings(case_path: Path, evidence: Evidence) -> list[Finding]:
+    findings: list[Finding] = []
     query_ids = declared_query_ids(case_path)
     for source in evidence.sources:
         try:
             if _digest(case_path, source.artifact) != source.sha256:
-                errors.append(
-                    f"{source.id}: artifact sha256 mismatch: {source.artifact}"
+                findings.append(
+                    Finding(
+                        "contract",
+                        f"{source.id}: artifact sha256 mismatch: {source.artifact}",
+                    )
                 )
+        except UnsafeArtifactPathError as exc:
+            findings.append(Finding("safety", str(exc)))
         except (OSError, ValueError) as exc:
-            errors.append(str(exc))
+            findings.append(Finding("contract", str(exc)))
         if source.query_id is not None and source.query_id not in query_ids:
-            errors.append(
-                f"{source.id}: query_id {source.query_id} has no "
-                f"`-- query_id: {source.query_id}` line in queries.sql"
+            findings.append(
+                Finding(
+                    "format",
+                    f"{source.id}: query_id {source.query_id} has no "
+                    f"`-- query_id: {source.query_id}` comment above a statement in "
+                    "queries.sql",
+                )
             )
-    return errors
+    return findings
 
 
-def _marker_errors(
+def _marker_findings(
     case_path: Path, evidence: Evidence, *, strict_completion: bool
-) -> list[str]:
+) -> list[Finding]:
     if not report_path(case_path).exists():
-        return ["Missing report.md for evidence claims"] if strict_completion else []
+        return []
     try:
         report = _case_file(case_path, "report.md").read_text(encoding="utf-8")
     except (OSError, UnicodeError, ValueError) as exc:
-        return [str(exc)]
-    markers = set(re.findall(r"\[C[0-9]+\]", report))
+        return [Finding("format", str(exc))]
+    markers = set(re.findall(r"\[C[0-9]+\]", without_accepted_gaps(report)))
     declared = {claim.report_marker for claim in evidence.claims}
-    errors = [
-        f"report.md references unknown claim {marker}"
+    findings = [
+        Finding("format", f"report.md references unknown claim {marker}")
         for marker in sorted(markers - declared)
     ]
     if strict_completion:
-        errors.extend(
-            f"report.md is missing claim marker {marker}"
+        findings.extend(
+            Finding("format", f"report.md is missing claim marker {marker}")
             for marker in sorted(declared - markers)
         )
-    return errors
+    return findings
 
 
-def _review_errors(case_path: Path, *, strict_completion: bool) -> list[str]:
+def _review_findings(case_path: Path, *, strict_completion: bool) -> list[Finding]:
     if not review_path(case_path).exists():
         return (
-            ["Missing review.json: obtain an independent final challenge"]
+            [
+                Finding(
+                    "contract",
+                    "Missing review.json: obtain an independent final challenge",
+                )
+            ]
             if strict_completion
             else []
         )
     try:
         review = Review.model_validate(_read_json(case_path, "review.json"))
+    except (OSError, UnicodeError, ValueError, ValidationError) as exc:
+        return [Finding("contract", f"Invalid review.json: {exc}")]
+    findings: list[Finding] = []
+    if review.verdict != "pass":
+        findings.append(Finding("contract", "review.json verdict is blocked"))
+    try:
         current_hashes = review_snapshot(case_path)
     except (OSError, UnicodeError, ValueError, ValidationError) as exc:
-        return [f"Invalid review.json: {exc}"]
-    errors: list[str] = []
+        return [*findings, Finding("contract", f"Invalid review.json: {exc}")]
     if set(review.reviewed_hashes) != set(current_hashes):
-        errors.append("review.json snapshot must include exactly all review inputs")
-    errors.extend(
-        f"review.json is stale for {name}"
+        findings.append(
+            Finding(
+                "stale", "review.json snapshot must include exactly all review inputs"
+            )
+        )
+    findings.extend(
+        Finding(
+            "stale",
+            f"{STALE_REVIEW} for {name}: the reviewer did not see this edit",
+        )
         for name, digest in current_hashes.items()
         if review.reviewed_hashes.get(name) != digest
     )
-    if strict_completion and review.verdict != "pass":
-        errors.append("review.json verdict is blocked")
-    return errors
+    return findings
 
 
-def validate_evidence(case_path: Path, *, strict_completion: bool = False) -> list[str]:
+def _unsafe_artifact_findings(case_path: Path) -> list[Finding]:
+    """Check artifact paths in a manifest the schema rejected, because that stays hard."""
+    try:
+        document = as_table(_read_json(case_path, "evidence.json"))
+    except (OSError, UnicodeError, ValueError):
+        return []
+    sources = document.get("sources")
+    entries = cast("list[object]", sources) if isinstance(sources, list) else []
+    findings: list[Finding] = []
+    for source in entries:
+        artifact = as_table(source).get("artifact")
+        if isinstance(artifact, str):
+            try:
+                _case_file(case_path, artifact)
+            except UnsafeArtifactPathError as exc:
+                findings.append(Finding("safety", str(exc)))
+            except (OSError, ValueError):
+                continue
+    return findings
+
+
+def evidence_findings(
+    case_path: Path, *, strict_completion: bool = False
+) -> list[Finding]:
     """Check evidence integrity and arithmetic, not the truth of prose claims."""
     if not evidence_path(case_path).exists():
-        return ["Missing evidence.json"] if strict_completion else []
+        return (
+            [Finding("contract", "Missing evidence.json")]
+            if strict_completion
+            else _review_findings(case_path, strict_completion=False)
+        )
     try:
         evidence = load_evidence(case_path)
+    except UnsafeArtifactPathError as exc:
+        return [Finding("safety", str(exc))]
     except (OSError, UnicodeError, ValueError, ValidationError) as exc:
-        return [f"Invalid evidence.json: {exc}"]
+        return [
+            *_unsafe_artifact_findings(case_path),
+            Finding("contract", f"Invalid evidence.json: {exc}"),
+        ]
 
-    errors = _source_errors(case_path, evidence)
-    errors.extend(
-        error
+    findings = _source_findings(case_path, evidence)
+    findings.extend(
+        Finding("wrong", error)
         for calculation in evidence.calculations
         if (error := _calculation_error(calculation)) is not None
     )
-    errors.extend(
-        _marker_errors(case_path, evidence, strict_completion=strict_completion)
+    findings.extend(
+        _marker_findings(case_path, evidence, strict_completion=strict_completion)
     )
     if strict_completion and (not evidence.sources or not evidence.claims):
-        errors.append("evidence.json needs at least one preserved source and claim")
+        findings.append(
+            Finding(
+                "contract",
+                "evidence.json needs at least one preserved source and claim",
+            )
+        )
     if strict_completion:
-        errors.extend(
-            f"evidence.json coverage for {item.family} is still the scaffold text"
+        findings.extend(
+            Finding(
+                "format",
+                f"evidence.json coverage for {item.family} is still the scaffold text",
+            )
             for item in evidence.coverage
             if item.reason == SCAFFOLD_COVERAGE_REASON
         )
-    errors.extend(_review_errors(case_path, strict_completion=strict_completion))
-    return errors
+    findings.extend(_review_findings(case_path, strict_completion=strict_completion))
+    return findings

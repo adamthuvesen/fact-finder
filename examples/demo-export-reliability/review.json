@@ -1,34 +1,44 @@
 {
   "schema_version": 1,
-  "reviewer": "demo-reviewer-subagent",
+  "reviewer": "demo-case-reviewer-nov04 (agent acb8148becff3b2cd)",
   "reviewed_hashes": {
     "brief.md": "bedfb17fb85d5cd8dcbe219517cf60f920c6444ea748f67367ad79d7994678f0",
-    "evidence.json": "c915a332aea5b97fad08cacbc1356effd3fe4e4c46c73991925ba4108ead9fb2",
+    "evidence.json": "e69107a620d694404df6b1d798d17d6393361685bc8ccfb6678573c91fa537b5",
     "evidence/change-log.md": "e697db7179f9b3a107da4a9aaac78755d59183948c563f5595799d760d087aa3",
-    "evidence/windows.json": "a7664d52e40a28e0a131390bff664db6a52c2d63c2bb6dfd0a1bafb837b5e335",
+    "evidence/windows.json": "a69737c52d9bbd461d28b5f8080c34a856f53e6d94a370fd5d0695dbd04afcda",
     "queries.sql": "75d6020fbad0698fbbd4838abf35158b1b97ff7628d9f544e214a5c02bf09904",
-    "report.md": "97d0da830b56b53fcdd2363eae126e77c459c5fee49fce549ae6a67c393de15c",
+    "report.md": "feb3015e0fc5b4b2b639150bd341afd82a3b993748f0de4027965273bbb62f0f",
     "source-objects.md": "eeaf2e6b11832cc3e2a9167f5e48f3ae182dc5510a47fa4fb0cc924072ba3819"
   },
   "objections": [
     {
-      "objection": "A volume spike or unrelated platform change in the same window could explain the break.",
-      "disposition": "resolved",
-      "resolution": "Scheduled jobs stayed flat, and the notes record no counting change."
-    },
-    {
-      "objection": "The February retry-policy tweak could have contributed materially.",
-      "disposition": "resolved",
-      "resolution": "It predates the inflection by two weeks, and success rate held at 98% until the schedule change."
-    },
-    {
-      "objection": "All evidence comes from one weekly aggregate file.",
+      "objection": "Isolation 'stays the better option only if on-call coverage matters more than a short delay': 'better' and 'short' have no evidence.",
       "disposition": "narrowed",
-      "resolution": "The step change holds across all full post-change weeks. The report discloses the single-source limit under Risks And Caveats."
+      "resolution": "Unmeasured but local; the section says the data is silent. Reword to 'may suit'."
+    },
+    {
+      "objection": "Retry, variance and metric-definition rejections have no evidence.json claims.",
+      "disposition": "narrowed",
+      "resolution": "All match the CSV and change log. Add claims."
+    },
+    {
+      "objection": "Brief's maintenance confounder is not addressed.",
+      "disposition": "inconclusive",
+      "resolution": "Change log records none. Report says nothing else was held fixed. Name it."
+    },
+    {
+      "objection": "Job-count growth might explain failures.",
+      "disposition": "resolved",
+      "resolution": "About 101 extra jobs weekly against 716 extra failures."
+    },
+    {
+      "objection": "Causal language exceeds one series.",
+      "disposition": "resolved",
+      "resolution": "Report says 'not identified'. All figures recomputed."
     }
   ],
-  "strongest_alternative": "A volume spike or unrelated platform change in the same window.",
-  "weakest_claim": "C4 attributes the loss to the scheduler change from timing and one operational note.",
-  "fragile_dependency": "Partial-week data at the window edges, and reliance on a single weekly aggregate file.",
+  "strongest_alternative": "An unrecorded job size or mix change at the same week; counts cannot exclude it.",
+  "weakest_claim": "Revert-first rationale: reversibility does not separate the options, and the on-call cost is unmeasured.",
+  "fragile_dependency": "Mechanism, timing and 'no counting change' rest on one unaudited change log. Queue minutes and failures share one file; disclosed.",
   "verdict": "pass"
 }

@@ -14,7 +14,7 @@ from .layout import find_repo_root, project_setting
 from .repo_setup import setup_repo
 from .research import case_paths, create_manual, render_goal, resolve_case_path
 from .source_bundles import disable_bundle, enable_bundle, render_bundle_list
-from .validation import GATE_LIMITS, validate_case
+from .validation import GATE_LIMITS, Assessment, accept_findings, assess_case
 
 CONTRACT_DIR = Path(__file__).parent / "contract"
 CONTRACT_FILES = {"method": "method", "evidence": "evidence-contract"}
@@ -68,6 +68,12 @@ def _add_init_arguments(init_parser: argparse.ArgumentParser) -> None:
         default="exploration",
     )
     init_parser.add_argument(
+        "--rigour",
+        choices=("exploratory", "decision"),
+        default="exploratory",
+        help="exploratory: a labelled quick answer. decision: the full evidence contract.",
+    )
+    init_parser.add_argument(
         "--sources",
         type=_comma_list,
         help="Comma-separated sources this case may use. Default: every registered source.",
@@ -116,7 +122,17 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument(
         "--strict",
         action="store_true",
-        help="Completion gate: a real answer, checked evidence, and a fresh independent review.",
+        help="Completion check at the case's rigour level.",
+    )
+    validate_parser.add_argument(
+        "--pinned",
+        action="store_true",
+        help="With --strict, also block when any reviewed file changed since the review.",
+    )
+    validate_parser.add_argument(
+        "--accept",
+        metavar="REASON",
+        help="With --strict, accept the rigour blocks for this reason. The override is recorded and labelled. Safety cannot be overridden.",
     )
     validate_parser.add_argument(
         "--json", action="store_true", help="Print the result as JSON."
@@ -195,6 +211,7 @@ def _init_case(repo_root: Path, args: argparse.Namespace) -> int:
         source_hints=dict(args.source_hint),
         local_context_paths=args.context_path,
         from_spec_path=args.from_spec,
+        rigour=args.rigour,
     )
     print(f"Created case: {result.case_id}")
     print(f"Path: {result.path}")
@@ -202,52 +219,77 @@ def _init_case(repo_root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _validation_result(
-    repo_root: Path, args: argparse.Namespace
-) -> tuple[str, list[str]]:
+def _empty_assessment(error: str) -> Assessment:
+    return Assessment(rigour="decision", strict=True, errors=[error], warnings=[])
+
+
+def _assess(repo_root: Path, args: argparse.Namespace) -> tuple[str, Assessment]:
     """Validate a case, reporting any failure to read it as a validation error."""
     try:
         case_path = resolve_case_path(repo_root, args.case)
-        return str(case_path), validate_case(case_path, strict_completion=args.strict)
+        if args.accept is not None:
+            accept_findings(case_path, args.accept, pinned=args.pinned)
+        return str(case_path), assess_case(
+            case_path, strict_completion=args.strict, pinned=args.pinned
+        )
     except READ_FAILURES as exc:
-        return args.case, [str(exc)]
+        return args.case, _empty_assessment(str(exc))
 
 
 def _validate_command(repo_root: Path, args: argparse.Namespace) -> int:
-    case, errors = _validation_result(repo_root, args)
+    if (args.accept is not None or args.pinned) and not args.strict:
+        raise ValueError("--accept and --pinned need --strict")
+    case, result = _assess(repo_root, args)
     if args.json:
         print(
             json.dumps(
                 {
                     "case": case,
                     "strict": args.strict,
-                    "passed": not errors,
-                    "errors": errors,
+                    "rigour": result.rigour,
+                    "passed": not result.errors,
+                    "errors": result.errors,
+                    "warnings": result.warnings,
+                    "accepted": result.accepted,
+                    "label": result.label,
                     "limits": GATE_LIMITS,
                 },
                 indent=2,
             )
         )
-        return 1 if errors else 0
-    if errors:
+        return 1 if result.errors else 0
+    if result.errors:
         print("Validation failed:")
-        for error in errors:
+        for error in result.errors:
             print(f"- {error}")
+    if args.strict:
+        for warning in result.warnings:
+            print(f"Warning: {warning}")
+    elif result.warnings:
+        print(f"{len(result.warnings)} items remain for --strict to report.")
+    if result.errors:
         return 1
     print(f"Validation passed: {case}")
     if args.strict:
+        print(result.label)
         print(GATE_LIMITS)
     return 0
 
 
 def _case_status(case_path: Path) -> str:
     try:
-        if validate_case(case_path):
+        if assess_case(case_path).errors:
             return "invalid"
-        strict_errors = validate_case(case_path, strict_completion=True)
+        result = assess_case(case_path, strict_completion=True)
     except READ_FAILURES:
         return "invalid"
-    return "in-progress" if strict_errors else "complete"
+    if result.errors:
+        return "in-progress"
+    if result.accepted:
+        return f"{result.rigour}-accepted"
+    if result.review_is_stale:
+        return f"{result.rigour}-stale-review"
+    return f"{result.rigour}-complete"
 
 
 def _list_command(repo_root: Path, _args: argparse.Namespace) -> int:

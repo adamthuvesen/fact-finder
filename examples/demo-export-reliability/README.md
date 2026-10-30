@@ -22,6 +22,10 @@ Paste the printed `/goal` block into Claude Code or Codex from the repo root. Th
 data is committed and synthetic, so this needs no API keys, no MCP servers, and
 no network beyond the client you are already signed in to.
 
+This is a decision case, so it carries the full evidence contract. A quick question needs
+far less: `research init` scaffolds an exploratory case, and `report.md` is the only file it
+must complete.
+
 The figures here are derivable from `exports_weekly.csv` — a real run should land
 on the same numbers. `evals/native-goal/rubric.md` scores exactly that, which is
 why the canary workspace excludes this directory.

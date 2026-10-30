@@ -1,5 +1,8 @@
 # Evidence and review contract
 
+This contract applies to a decision case, created with `research init --rigour decision`. An
+exploratory case needs only a labelled `report.md`. Files it does carry are still checked.
+
 Use Markdown to explain the answer. Use `evidence.json` to connect material claims to preserved evidence and calculations.
 
 Inspect the authoritative schemas with:
@@ -13,7 +16,7 @@ uv run research schema review
 
 Save relevant aggregate results or source excerpts inside the case, such as `evidence/monthly-counts.json`. Record the retrieval route, source locator, access time, query ID when available, and SHA-256 digest. Keep query text in `queries.sql`.
 
-A case that marks a SQL-backed family as `used` needs at least one preserved query, and `-- No SQL used` does not satisfy it. The SQL-backed families are those whose bundle sets `sql_backed`: Snowflake, BigQuery, Postgres, DuckDB, and Redshift. Other query languages, such as KQL, and natural-language endpoints are not parsed as SQL.
+A decision case that marks a SQL-backed family as `used` needs at least one preserved query, and `-- No SQL used` does not satisfy it. The SQL-backed families are those whose bundle sets `sql_backed`: Snowflake, BigQuery, Postgres, DuckDB, and Redshift. Other query languages, such as KQL, and natural-language endpoints are not parsed as SQL.
 
 A source with a `query_id` needs a matching `-- query_id: <id>` comment directly above a statement in `queries.sql`. An id with no statement, or inside a string literal, does not count. Every source `locator` must match an entry in `source-objects.md`. An entry is one bullet: a backticked name or a URL, then `accessed YYYY-MM-DD`.
 
@@ -70,12 +73,28 @@ If reviewed content changes, ask the reviewer to inspect the final version. Neve
 uv run research validate <case> --strict
 ```
 
-Strict validation checks artifact completeness, source coverage, references, preserved file integrity, arithmetic, claim markers, review freshness, source-object structure, and read-only SQL.
+| Finding | Exploratory | Decision |
+| --- | --- | --- |
+| Write SQL, unreadable `queries.sql`, or an artifact outside the case | blocks, no override | blocks, no override |
+| Missing or unreadable `brief.md` or `report.md` | blocks, no override | blocks, no override |
+| No real Executive Summary | blocks | blocks |
+| Missing exploratory label in `report.md` | blocks | not applicable |
+| Wrong arithmetic in `evidence.json` | blocks | blocks |
+| Missing or invalid `evidence.json` or `review.json`, or a generic reviewer name | not required | blocks |
+| Blocked review verdict, changed artifact, or empty report section | warns | blocks |
+| A used SQL-backed family with no preserved query | warns | blocks |
+| Reviewed file changed since the review | warns | warns; blocks with `--pinned` |
+| Query id, source-object format, coverage text, claim marker, root-cause sections, shape | warns | warns |
+
+To accept a block, a person runs `validate <case> --strict --accept "<short reason>"`. Each accepted
+finding and its reason go in `overrides.json`, in an `## Accepted Gaps` section the command writes at
+the end of `report.md`, and in the result label. A reader of the report sees them without running a
+command. That section is not part of a reviewed hash. A later, different problem still blocks.
 
 Semantic truth and reviewer independence cannot be proved by a gate. Validation does not verify external truth, semantic entailment, or causal identification. A structurally consistent manifest full of filler, with a plausible reviewer id, still passes. The reviewer name is an attestation. Independent challenge and research evaluations test what deterministic validation cannot establish.
 
 ## Existing cases
 
-Strict completion requires this contract. Add the brief's `## Allowed Source Families`, recover actual evidence and calculation inputs, and obtain a new review. If evidence cannot be recovered, disclose the limit rather than reconstructing a result from recollection. Non-strict validation still reads older cases.
+A brief with no `- Rigour:` line is a decision case. To finish one as a decision, add the brief's `## Allowed Source Families`, recover actual evidence and calculation inputs, and obtain a new review. If evidence cannot be recovered, disclose the limit rather than reconstructing a result from recollection. Non-strict validation still reads older cases.
 
 Legacy `state/` files remain historical records. They do not control execution or completion.

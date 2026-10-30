@@ -36,7 +36,15 @@ One static export.
 
 def new_case(drive: Any, slug: str) -> Path:
     out = drive.expect(
-        ["init", slug, "--question", "Why did failures rise in June?", "--local-only"],
+        [
+            "init",
+            slug,
+            "--question",
+            "Why did failures rise in June?",
+            "--local-only",
+            "--rigour",
+            "decision",
+        ],
         0,
     )
     return Path(out.split("Path: ", 1)[1].splitlines()[0])
@@ -149,13 +157,43 @@ def drive_case_lifecycle(drive: Any) -> None:
     drive.expect(["list"], 0, "lifecycle  in-progress")
     fill(drive, case)
     drive.expect(["validate", case.name, "--strict"], 0, "cannot be proved by a gate")
-    drive.expect(["list"], 0, "lifecycle  complete")
+    drive.expect(["list"], 0, "lifecycle  decision-complete")
     with (case / "report.md").open("a") as report:
         report.write("\nLate edit.\n")
-    drive.expect(["validate", case.name, "--strict"], 1, "stale for report.md")
-    payload = json.loads(drive.expect(["validate", case.name, "--strict", "--json"], 1))
+    drive.expect(["validate", case.name, "--strict"], 0, "stale for report.md")
+    drive.expect(
+        ["validate", case.name, "--strict", "--pinned"], 1, "stale for report.md"
+    )
+    payload = json.loads(
+        drive.expect(["validate", case.name, "--strict", "--pinned", "--json"], 1)
+    )
     drive.check(payload["passed"] is False, "--json did not report the failure")
-    drive.expect(["list"], 0, "lifecycle  invalid")
+    drive.expect(["list"], 0, "lifecycle  decision-stale-review")
+
+
+def drive_quick_answer(drive: Any) -> None:
+    out = drive.expect(
+        ["init", "quick", "--question", "Did failures rise?", "--local-only"], 0
+    )
+    case = Path(out.split("Path: ", 1)[1].splitlines()[0])
+    report = case / "report.md"
+    report.write_text(
+        report.read_text().replace(
+            "<!-- research:placeholder --> Complete this section with the answer and the most "
+            "decision-relevant evidence.",
+            "Yes. Failures rose from 100 to 412 a week after the June scheduler change.",
+        )
+    )
+    drive.expect(
+        ["validate", case.name, "--strict"],
+        0,
+        "Exploratory answer: no independent review",
+    )
+    (case / "queries.sql").write_text("DROP TABLE t")
+    drive.expect(
+        ["validate", case.name, "--strict", "--accept", "try"], 1, "not read-only"
+    )
+    drive.check(not (case / "overrides.json").exists(), "safety was overridden")
 
 
 def drive_lorem_gate(drive: Any) -> None:
@@ -260,6 +298,7 @@ def drive_consumer_setup(drive: Any) -> None:
 
 FEATURES = {
     "case-lifecycle": drive_case_lifecycle,
+    "quick-answer": drive_quick_answer,
     "lorem-gate": drive_lorem_gate,
     "sql-gate": drive_sql_gate,
     "sources": drive_sources,

@@ -84,6 +84,10 @@ class ServerDefinition(StrictModel):
     write_tools: list[Text] = Field(default_factory=list[str])
     support_files: list[Text] = Field(default_factory=list[str])
     placeholders: list[Text] = Field(default_factory=list[str])
+    # A value SETUP.md lets the user choose instead, as a full-match regex per default.
+    alternatives: dict[str, list[Text]] = Field(default_factory=dict[str, list[str]])
+    # An extra flag SETUP.md allows, with its value as `--flag=v` or as the next argument.
+    optional_args: list[Text] = Field(default_factory=list[str])
 
     @model_validator(mode="after")
     def one_transport(self) -> Self:

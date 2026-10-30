@@ -8,8 +8,8 @@ Inventory-id: init, goal, validate, review-snapshot, list
 ## Sub-features
 
 - `scaffold`: init, then goal prints an absolute path.
-- `strict`: strict fails on the scaffold and passes when filled.
-- `stale`: a report edit fails strict; `--json` reports it; list shows in-progress.
+- `strict`: a decision case fails strict on the scaffold and passes when filled.
+- `stale`: a report edit warns; `--pinned` fails; `--json` reports it; list shows the stale review.
 
 ## How to get to it (user POV)
 

@@ -23,10 +23,8 @@ uv run research init export-reliability --template root-cause \
 uv run research goal export-reliability
 ```
 
-The last command prints a `/goal ...` block. Paste it into Claude Code or Codex from the
-repo root. The investigation runs to completion in that session and ends with strict
-validation. The finished result of this case is in
-[`examples/demo-export-reliability/`](examples/demo-export-reliability/).
+Paste the printed `/goal ...` block into Claude Code or Codex from the repo root. A finished
+decision case is in [`examples/demo-export-reliability/`](examples/demo-export-reliability/).
 
 ## Run inside Claude Code or Codex
 
@@ -42,19 +40,21 @@ Why did the weekly batch-export success rate drop in March 2026? Use only the lo
 For an ambiguous, causal, cross-source, or high-stakes question, name `research-spec`
 instead. It runs targeted discovery and designs falsifiable hypotheses first.
 
-## Case artifacts
+## Quick answers and decisions
 
-Each case lives in `research/<date>-<slug>/`: `brief.md` (binding question and scope),
-`notes.md` (working record, no gate), `report.md` (the answer), `queries.sql`,
-`source-objects.md`, `evidence.json` (sources, claims, checked calculations), `review.json`
-(the independent challenge, bound by hash), and an optional `plan.md`.
+```bash
+uv run research init churn-check --question "Did churn rise in June?"   # exploratory
+# write the answer in report.md
+uv run research validate churn-check --strict
+```
 
-## The completion gate
+An exploratory case passes with a real answer and its label line. It needs no evidence manifest
+or review, and warnings list what would make it stronger. For a decision that matters, use
+`research init --rigour decision`. That adds `evidence.json` and an independent `review.json`.
 
-A case is done when `research validate --strict` passes.
-[docs/evidence-contract.md](docs/evidence-contract.md) lists what it checks. It proves
-integrity and arithmetic. It cannot prove semantic truth or reviewer independence, and
-its output says so. Independent challenge covers what a gate cannot.
+Safety is hard: write SQL fails, always. Rigour is a default: a person can accept a block with
+`--accept "<reason>"`, which is recorded and labelled. A gate proves integrity and arithmetic,
+not truth, and its output says so. See the [evidence contract](docs/evidence-contract.md).
 
 ## Sources
 

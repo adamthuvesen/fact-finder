@@ -6,6 +6,8 @@
     "jobs_scheduled": 44990,
     "jobs_succeeded": 44090,
     "jobs_failed": 900,
+    "scheduled_per_week": 4998.89,
+    "failed_per_week": 100,
     "avg_queue_minutes": 8.0
   },
   "post": {
@@ -14,6 +16,8 @@
     "jobs_scheduled": 25500,
     "jobs_succeeded": 21420,
     "jobs_failed": 4080,
+    "scheduled_per_week": 5100,
+    "failed_per_week": 816,
     "avg_queue_minutes": 42.0
   }
 }

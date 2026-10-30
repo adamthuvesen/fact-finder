@@ -20,10 +20,8 @@ skills prepare the case and return a ready-to-submit `/goal` command.
 
 ## Method and evidence
 
-`uv run research contract method` prints the research method, and
-`uv run research contract evidence` prints the evidence contract. Both ship in the package, so
-a consumer repo gets them with its pin. Their one home is
-[`contract/`](src/agentic_research_loop/contract/method.md).
+`uv run research contract method|evidence` prints the method and the evidence contract. Both
+ship in the package. Their one home is [`contract/`](src/agentic_research_loop/contract/method.md).
 
 ## Choosing sources
 

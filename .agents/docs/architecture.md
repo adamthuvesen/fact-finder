@@ -51,8 +51,6 @@ Doctor reads each client's wired entry and deny list. It never contacts a server
 pass says nothing about what the upstream server does. An unfilled placeholder reports
 `needs-setup`. Deny lists cover only write tools a bundle's `SETUP.md` names.
 
-`research init` records a case's allowed sources in its brief, and `research goal` reads them.
-
 ## SQL boundary
 
 `readonly_sql` parses preserved SQL under eight dialect readings and requires every
@@ -62,9 +60,10 @@ read-only role on the connection is the real guard.
 
 ## Validation
 
-`research validate` checks structure, read-only SQL, and evidence integrity, and is safe
-at scaffold time. `--strict` is the goal's terminal condition. `evidence.json` owns
-evidence, `review.json` owns the final challenge, and `notes.md` carries no gate. See
+`research validate` reports safety and structure, and is safe at scaffold time. `--strict` is the
+completion check at the case's rigour level, `exploratory` or `decision`. `evidence.json` owns
+evidence, `review.json` owns the challenge, and `notes.md` carries no gate. Each finding has a kind,
+and `validation.assess_case` decides what blocks. See
 [the evidence contract](../../docs/evidence-contract.md).
 
 ## Deliberate omissions

@@ -5,5 +5,10 @@
     "Delete-Dashboard",
     "Bulk-Edit-Properties",
     "Bulk-Edit-Events"
-  ]
+  ],
+  "alternatives": {
+    "https://mcp.mixpanel.com/mcp": [
+      "https://mcp-(eu|in)\\.mixpanel\\.com/mcp"
+    ]
+  }
 }

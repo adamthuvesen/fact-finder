@@ -11,6 +11,10 @@ from .layout import local_today
 # looks for the token, not for template wording, so real prose cannot trip it.
 PLACEHOLDER = "<!-- research:placeholder -->"
 NO_SOURCE_FAMILIES = "none"
+EXPLORATORY_LABEL = "Exploratory answer: not independently reviewed."
+RIGOUR = re.compile(
+    r"(?im)^[ \t]*-[ \t]*\*{0,2}Rigour\*{0,2}:\*{0,2}[ \t]*`?([A-Za-z-]+)`?"
+)
 # Tolerates the bold variants a hand-written brief uses, such as `- **Research shape:**`.
 RESEARCH_SHAPE = re.compile(
     r"(?im)^[ \t]*-[ \t]*\*{0,2}Research shape\*{0,2}:\*{0,2}[ \t]*`?([A-Za-z-]+)`?"
@@ -63,6 +67,7 @@ def brief_template(
     source_constraints: list[str],
     allowed_families: list[str],
     success_criteria: list[str],
+    rigour: str = "exploratory",
     today: date | None = None,
 ) -> str:
     today_text = (today or local_today()).isoformat()
@@ -99,6 +104,7 @@ def brief_template(
 - In scope:
 - Out of scope:
 - Research shape: `{template}`
+- Rigour: `{rigour}`
 - Created: `{today_text}`
 
 {root_cause_sections}## Source Constraints
@@ -198,15 +204,18 @@ Use this as a lightweight ledger, not a form to fill perfectly.
 """
 
 
-def report_template(template: str, question: str) -> str:
+def report_template(
+    template: str, question: str, *, rigour: str = "exploratory"
+) -> str:
     middle_heading = {
         "root-cause": "Ranked Causes",
         "comparison": "Key Differences",
         "exploration": "Current Picture",
     }[template]
+    label = f"{EXPLORATORY_LABEL}\n\n" if rigour == "exploratory" else ""
     return f"""# Research Report
 
-## Question
+{label}## Question
 
 {question}
 
@@ -219,11 +228,11 @@ def report_template(template: str, question: str) -> str:
 
 ## Evidence
 
-{PLACEHOLDER} Cite each material claim with its marker from `evidence.json`.
+{PLACEHOLDER} Say what supports the answer.
 
 ## Reconciliation
 
-{PLACEHOLDER} Show how calculated contributions reconcile to the source total. If reconciliation does not apply, explain why.
+{PLACEHOLDER} Show how calculated contributions reconcile to the source total. If reconciliation does not apply, say so.
 
 ## Rejected Leads
 
@@ -252,16 +261,18 @@ List one bullet per source object: its fully qualified name or stable URL, in ba
 """
 
 
-def goal_prompt(case_path: Path, source_constraints: list[str]) -> str:
+def goal_prompt(
+    case_path: Path, source_constraints: list[str], *, rigour: str = "exploratory"
+) -> str:
     """Render the native `/goal` contract for a case.
 
-    Every path is absolute. A goal that is handed relative paths can write
-    correct analysis into the wrong directory, which is exactly how a case looks
-    complete while the real case directory sits untouched.
+    Every path is absolute. A goal that is handed relative paths can write correct
+    analysis into the wrong directory, which is exactly how a case looks complete while
+    the real case directory sits untouched.
     """
     case_path = case_path.resolve()
     constraints = "\n".join(f"- {line}" for line in source_constraints if line.strip())
-    return f"""/goal Complete the bounded research case at `{case_path}`.
+    opening = f"""/goal Complete the bounded research case at `{case_path}`.
 
 Read `{case_path / "brief.md"}` first and treat its question, scope, source constraints, definitions, and success criteria as binding. Write only inside `{case_path}`. You may read repository instructions, skills, and any source the brief allows. Treat every external system as read-only. Never fabricate evidence.
 
@@ -269,19 +280,27 @@ This case may use only these sources:
 
 {constraints}
 
-Run `uv run research contract method` and `uv run research contract evidence`, then follow both.
+Run `uv run research contract method` and follow it.
+"""
+    closing = f"""Run `uv run research validate "{case_path}" --strict`, fix every error, consider every warning, and surface the result and final conclusion in your last response. Validation checks integrity and arithmetic. It cannot prove semantic truth or reviewer independence. If a rigour check does not fit this case, tell the user; only a person may accept it with `--accept "<reason>"`. Stop early only if a concrete external dependency makes the case impossible to complete, and record that blocker in `report.md`."""
+    if rigour == "exploratory":
+        return f"""{opening}
+This is an exploratory case: a quick, labelled answer. Keep the label line at the top of `report.md`. Write the answer and its caveats there. Keep every SQL query in `queries.sql`, and list what you used in `source-objects.md`. Say plainly when the evidence is thin. If the answer will drive a decision that matters, say so, and suggest re-running with `research init --rigour decision`.
+
+{closing}"""
+    return f"""{opening}Run `uv run research contract evidence` and follow it.
 
 Maintain these artifacts as you work:
 - `notes.md` for hypotheses, dead ends, and open questions
 - `report.md` for the usable answer, reconciliation, rejected leads, and caveats, with a marker such as [C1] beside each material claim
 - `queries.sql` for every SQL query used, or an explicit reason no SQL was used
-- `source-objects.md` for every source object used, with fully qualified names or stable URLs and access dates
+- `source-objects.md` for every source object used
 - `evidence.json` for sources, source coverage, material claims, and checked calculations (`uv run research schema evidence` prints the schema)
 - preserved source excerpts or aggregate results inside the case, which `evidence.json` lists by SHA-256
 - `plan.md` only when a separate plan materially helps the investigation
 
-Every claim cites a declared source. A source with a `query_id` needs a `-- query_id: <id>` comment directly above its statement in `queries.sql`. Every source locator appears in `source-objects.md`. Reconcile calculated contributions to the relevant source total when applicable. Do not count shared upstream data as independent corroboration. Continue until the report answers the question and every material claim is evidence-backed.
+Every claim cites a declared source. Reconcile calculated contributions to the relevant source total when applicable. Do not count shared upstream data as independent corroboration. Continue until the report answers the question and every material claim is evidence-backed.
 
-Before finishing, delegate the final challenge to an independent subagent that did not conduct the research. Give it the final artifacts and preserved evidence for read-only review. It must identify the strongest competing explanation, the weakest-supported material claim, the most fragile source or calculation, and any material objection. Do not replace the independent review with your own assessment. Record its name or task id and its findings in `review.json` (`uv run research schema review`), using `uv run research review-snapshot "{case_path}"` for `reviewed_hashes`. A snapshot only prints hashes and approves nothing. If reviewed content changes, obtain another review before updating the hashes.
+Before finishing, delegate the final challenge to an independent subagent that did not conduct the research. Give it the final artifacts and preserved evidence for read-only review. It must identify the strongest competing explanation, the weakest-supported material claim, the most fragile source or calculation, and any material objection. Do not replace the independent review with your own assessment. Record its name or task id and its findings in `review.json` (`uv run research schema review`), using `uv run research review-snapshot "{case_path}"` for `reviewed_hashes`. A snapshot only prints hashes and approves nothing. Never replace a hash without a new review. A review that predates small edits warns; a material change needs another review.
 
-Run `uv run research validate "{case_path}" --strict`, fix every failure, and surface the validation result and final conclusion in your last response. Strict validation checks integrity and arithmetic. It cannot prove semantic truth or reviewer independence. Stop early only if a concrete external dependency makes the case impossible to complete, and record that blocker in `notes.md` and `report.md`."""
+{closing}"""
