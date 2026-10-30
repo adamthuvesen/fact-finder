@@ -11,7 +11,8 @@ agent goal. This file holds project facts. It is short because checks enforce th
 
 If a doc disagrees with code, fix the doc in the same change. Run `make quick` after each edit: it checks
 changed files and local cases under `research/`, and the edit hook runs it. Run `make check` before
-you commit: it is the whole gate, in about 15 seconds, and the first CI step. Prove
+you commit: it is the whole gate, in about 15 seconds, and the first CI step. `make fix` applies the
+auto-fixers (ruff lint and format). Prove
 changes with `make verify` (`verify-fact-finder` skill at `.agents/skills/verify-fact-finder/`).
 
 ## Stop and ask

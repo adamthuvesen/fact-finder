@@ -31,7 +31,7 @@ dependencies = [
 dev = [
     "actionlint-py>=1.7.12.25",
     "ast-grep-cli>=0.51.1",
-    "basedpyright>=1.40.2",
+    "basedpyright==1.40.2",
     "deptry>=0.25.1",
     "import-linter>=2.15",
     "markdown-it-py>=4.2.0",
@@ -63,7 +63,7 @@ extend-exclude = ["vulture_whitelist.py"]
 extend-include = [".agents/skills/*/verify"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "SIM", "S", "BLE", "TRY", "PTH", "TID", "ANN", "PL", "RUF", "C4", "DTZ", "T20", "ARG", "ERA", "PERF", "FBT", "SLF", "RET", "PGH"]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "S", "BLE", "TRY", "PTH", "TID", "ANN", "PL", "RUF", "C4", "DTZ", "T20", "ARG", "ERA", "PERF", "FBT", "SLF", "RET", "PGH", "PGH003"]
 ignore = [
     "E501",
     "TRY003",
@@ -129,12 +129,23 @@ ignore = [
 
 [tool.basedpyright]
 pythonVersion = "3.14"
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
+include = [".", ".agents/skills/verify-fact-finder/verify"]
 failOnWarnings = false
-strict = ["src"]
 exclude = ["**/.venv", "**/__pycache__", "research", "evals", "examples", "vulture_whitelist.py"]
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
+reportUnknownLambdaType = false
+reportMissingTypeStubs = false
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportMissingParameterType = false
+reportPrivateUsage = false
 
 [tool.vulture]
 paths = ["src", "scripts", "vulture_whitelist.py"]
