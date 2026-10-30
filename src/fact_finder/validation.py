@@ -185,8 +185,7 @@ def _report_findings(text: str, rigour: Rigour) -> list[Finding]:
     unfilled = [
         heading
         for heading in REPORT_SECTIONS
-        if rigour == "exploratory"
-        and PLACEHOLDER in (extract_section(report, heading) or "")
+        if rigour == "exploratory" and PLACEHOLDER in (extract_section(report, heading) or "")
     ]
     if unfilled:
         findings.append(
@@ -270,7 +269,7 @@ def _source_object_findings(case_path: Path, text: str | None) -> list[Finding]:
         return findings
     try:
         evidence = load_evidence(case_path)
-    except (OSError, UnicodeError, ValueError, ValidationError):
+    except OSError, UnicodeError, ValueError, ValidationError:
         return findings
     findings.extend(
         Finding(
@@ -293,7 +292,7 @@ def _coverage_findings(case_path: Path, brief: str) -> list[Finding]:
         return []
     try:
         evidence = load_evidence(case_path)
-    except (OSError, UnicodeError, ValueError, ValidationError):
+    except OSError, UnicodeError, ValueError, ValidationError:
         return []
     allowed = {name.strip() for name in section.split(",") if name.strip()}
     allowed.discard(NO_SOURCE_FAMILIES)
@@ -321,7 +320,7 @@ def _used_sql_families(case_path: Path) -> list[str]:
         return []
     try:
         evidence = load_evidence(case_path)
-    except (OSError, UnicodeError, ValueError, ValidationError):
+    except OSError, UnicodeError, ValueError, ValidationError:
         return []
     sql_backed = sql_backed_families(case_path.parent.parent)
     return sorted(
@@ -331,9 +330,7 @@ def _used_sql_families(case_path: Path) -> list[str]:
     )
 
 
-def _sql_provenance_findings(
-    case_path: Path, queries: ReadOnlySql | None
-) -> list[Finding]:
+def _sql_provenance_findings(case_path: Path, queries: ReadOnlySql | None) -> list[Finding]:
     if queries is None or queries.statement_count:
         return []
     used = _used_sql_families(case_path)
@@ -483,11 +480,7 @@ def _brief_field_findings(case_path: Path, brief: str) -> list[Finding]:
 
 def case_rigour(brief: str) -> Rigour:
     match = RIGOUR.search(brief)
-    return (
-        "exploratory"
-        if match and match.group(1).lower() == "exploratory"
-        else "decision"
-    )
+    return "exploratory" if match and match.group(1).lower() == "exploratory" else "decision"
 
 
 def _read_case_files(
@@ -528,9 +521,7 @@ def _read_case_files(
     return texts, findings
 
 
-def _all_findings(
-    case_path: Path, rigour: Rigour, texts: dict[str, str]
-) -> list[Finding]:
+def _all_findings(case_path: Path, rigour: Rigour, texts: dict[str, str]) -> list[Finding]:
     brief = texts["brief.md"]
     try:
         queries = ReadOnlySql.parse(texts.get("queries.sql", ""))
@@ -551,9 +542,7 @@ def _all_findings(
             )
         ]
     findings.extend(_shape_findings(case_path, brief))
-    findings.extend(
-        evidence_findings(case_path, strict_completion=rigour == "decision")
-    )
+    findings.extend(evidence_findings(case_path, strict_completion=rigour == "decision"))
     question = extract_section(brief, "Question")
     if question is not None and question.lower().startswith("research:"):
         findings.append(
@@ -594,9 +583,7 @@ class Assessment:
     errors: list[str]
     warnings: list[str]
     hard_errors: list[str] = dataclass_field(default_factory=list[str])
-    accepted: dict[str, list[str]] = dataclass_field(
-        default_factory=dict[str, list[str]]
-    )
+    accepted: dict[str, list[str]] = dataclass_field(default_factory=dict[str, list[str]])
 
     @property
     def review_is_stale(self) -> bool:
@@ -701,9 +688,7 @@ def accept_findings(case_path: Path, reason: str, *, pinned: bool = False) -> li
     text = reason.strip()
     if not text:
         raise ValueError(
-            problem(
-                "--accept has no reason", 'use --accept "<why a person accepts this>"'
-            )
+            problem("--accept has no reason", 'use --accept "<why a person accepts this>"')
         )
     current = assess_case(case_path, strict_completion=True, pinned=pinned)
     accepted = [

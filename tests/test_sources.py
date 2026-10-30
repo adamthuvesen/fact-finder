@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -28,7 +29,7 @@ VALID_SPEC = {
 }
 
 
-def _write_user_sources(root: Path, sources: dict) -> None:
+def _write_user_sources(root: Path, sources: dict[str, Any]) -> None:
     (root / "config").mkdir(exist_ok=True)
     (root / "config" / "sources.json").write_text(
         json.dumps({"sources": sources}), encoding="utf-8"
@@ -118,9 +119,7 @@ def test_sensitive_local_path_gets_a_note(tmp_path: Path) -> None:
     assert "Sensitive-looking path attached" in lines[1]
 
 
-def test_local_only_leaves_no_external_source_in_the_brief(
-    repo_root, monkeypatch
-) -> None:
+def test_local_only_leaves_no_external_source_in_the_brief(repo_root, monkeypatch) -> None:
     monkeypatch.chdir(repo_root)
 
     assert main(["init", "reg", "--template", "root-cause", "--local-only"]) == 0
@@ -142,9 +141,7 @@ def test_local_only_leaves_no_external_source_in_the_brief(
         ["doctor"],
     ],
 )
-def test_bad_sources_json_is_a_clean_cli_error(
-    repo_root, monkeypatch, capsys, command
-) -> None:
+def test_bad_sources_json_is_a_clean_cli_error(repo_root, monkeypatch, capsys, command) -> None:
     """`{bad` used to raise a raw ValueError at import, on every command."""
     monkeypatch.chdir(repo_root)
     (repo_root / "config").mkdir()

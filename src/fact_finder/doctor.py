@@ -82,9 +82,7 @@ def allowlist_problem(text: str) -> str | None:
     except yaml.YAMLError as exc:
         return f"is not valid YAML: {exc}"
     reason = _permissions_problem(settings.get("sql_statement_permissions"))
-    if reason is None and as_table(settings.get("other_services")).get(
-        "semantic_manager"
-    ):
+    if reason is None and as_table(settings.get("other_services")).get("semantic_manager"):
         return "enables semantic_manager, whose write tool bypasses the allowlist"
     return reason
 
@@ -94,9 +92,7 @@ def control_problem(
 ) -> str | None:
     """Return why a server breaks its declared control, or None if it holds."""
     match control.mechanism:
-        case "url_suffix" if not (
-            url.endswith(control.detail) or f"{control.detail}/" in url
-        ):
+        case "url_suffix" if not (url.endswith(control.detail) or f"{control.detail}/" in url):
             return f"url does not end with {control.detail}"
         case "server_flag" if control.detail not in args:
             return f"args do not include {control.detail}"
@@ -108,9 +104,7 @@ def control_problem(
             return None
 
 
-def _statement_allowlist_problem(
-    repo_root: Path, relative: str, args: list[str]
-) -> str | None:
+def _statement_allowlist_problem(repo_root: Path, relative: str, args: list[str]) -> str | None:
     if relative not in args:
         return f"args do not pass {relative}"
     path = repo_root / relative
@@ -215,16 +209,10 @@ def _deny_checks(
     cursor = deny_rules(clients.cursor_permissions)
     if "claude" not in conflicts:
         missing += [
-            (CLAUDE_LOCAL_SETTINGS, r)
-            for r in claude_deny_rules(server)
-            if r not in claude
+            (CLAUDE_LOCAL_SETTINGS, r) for r in claude_deny_rules(server) if r not in claude
         ]
     if "cursor" not in conflicts:
-        missing += [
-            (CURSOR_PERMISSIONS, r)
-            for r in cursor_deny_rules(server)
-            if r not in cursor
-        ]
+        missing += [(CURSOR_PERMISSIONS, r) for r in cursor_deny_rules(server) if r not in cursor]
     entry = clients.server_entry("codex", server.server_name)
     if entry is not None and "codex" not in conflicts:
         disabled: list[str] = entry.get("disabled_tools", [])
@@ -259,9 +247,7 @@ def _check_bundle(
             )
         )
     elif not checks:
-        checks.append(
-            DoctorCheck(bundle.name, "pass", f"{control.mechanism}: {control.detail}")
-        )
+        checks.append(DoctorCheck(bundle.name, "pass", f"{control.mechanism}: {control.detail}"))
     return checks
 
 

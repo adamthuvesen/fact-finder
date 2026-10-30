@@ -79,11 +79,7 @@ def _bundle_roots(repo_root: Path) -> list[Path]:
 
 def available_bundles(repo_root: Path) -> list[str]:
     return sorted(
-        {
-            entry.stem
-            for root in _bundle_roots(repo_root)
-            for entry in root.glob("*.toml")
-        }
+        {entry.stem for root in _bundle_roots(repo_root) for entry in root.glob("*.toml")}
     )
 
 
@@ -112,9 +108,7 @@ def load_bundle(repo_root: Path, name: str) -> Bundle:
             problem(f"not valid TOML: {exc}", "correct the syntax", file=str(path))
         ) from exc
     except ValidationError as exc:
-        raise SourceConfigError(
-            "\n".join(validation_problems(exc, str(path), text))
-        ) from exc
+        raise SourceConfigError("\n".join(validation_problems(exc, str(path), text))) from exc
     return Bundle(
         name=name,
         path=path,
@@ -160,9 +154,7 @@ def unfilled_fields(path: Path) -> list[str]:
 def _support_files(repo_root: Path, bundle: Bundle) -> dict[Path, str]:
     """Return a server's support files for `config/`, keeping any local edit."""
     documents: dict[Path, str] = {}
-    for file_name, content in (
-        bundle.server.support_files if bundle.server else {}
-    ).items():
+    for file_name, content in (bundle.server.support_files if bundle.server else {}).items():
         target = repo_root / "config" / file_name
         if not target.exists():
             documents[target] = f"{content}\n"
@@ -187,14 +179,10 @@ def owned_wiring(repo_root: Path) -> dict[str, Wiring]:
     try:
         return _WIRING_FILE.validate_json(text)
     except ValidationError as exc:
-        raise SourceConfigError(
-            "\n".join(validation_problems(exc, WIRING_FILE, text))
-        ) from exc
+        raise SourceConfigError("\n".join(validation_problems(exc, WIRING_FILE, text))) from exc
 
 
-def wiring_is_unwanted(
-    repo_root: Path, document: SourcesFile, name: str, wiring: Wiring
-) -> bool:
+def wiring_is_unwanted(repo_root: Path, document: SourcesFile, name: str, wiring: Wiring) -> bool:
     if name not in document.sources:
         return True
     if name not in available_bundles(repo_root):
@@ -242,9 +230,7 @@ def reconcile_clients(repo_root: Path, document: SourcesFile) -> list[str]:
         if wiring_is_unwanted(repo_root, document, name, wiring):
             clients.unwire(wiring)
             del ledger[name]
-            actions.append(
-                f"removed server '{wiring.server_name}' from all client configs"
-            )
+            actions.append(f"removed server '{wiring.server_name}' from all client configs")
     known = set(available_bundles(repo_root))
     support: dict[Path, str] = {}
     for name in sorted(document.sources.keys() & known):
@@ -256,9 +242,7 @@ def reconcile_clients(repo_root: Path, document: SourcesFile) -> list[str]:
         result = clients.wire(bundle.server, ledger.get(name))
         ledger[name] = result.wiring
         if result.added_files:
-            actions.append(
-                f"wired server '{server_name}' in {', '.join(result.added_files)}"
-            )
+            actions.append(f"wired server '{server_name}' in {', '.join(result.added_files)}")
         if result.updated_files:
             actions.append(
                 f"updated server '{server_name}' to match its bundle in "
@@ -268,13 +252,9 @@ def reconcile_clients(repo_root: Path, document: SourcesFile) -> list[str]:
             actions.append(
                 f"denied {len(bundle.server.write_tools)} write tools of '{server_name}'"
             )
-        actions.extend(
-            conflict_problem(server_name, name, file) for file in result.conflict_files
-        )
+        actions.extend(conflict_problem(server_name, name, file) for file in result.conflict_files)
     actions.extend(f"copied {path.name} to config/" for path in support)
-    connector_rules = [
-        rule for rules in connector_deny_rules(repo_root).values() for rule in rules
-    ]
+    connector_rules = [rule for rules in connector_deny_rules(repo_root).values() for rule in rules]
     if added := clients.deny_in_shared_settings(connector_rules):
         actions.append(
             f"denied {len(added)} claude.ai connector write tools in .claude/settings.json"
@@ -334,10 +314,7 @@ def enabled_bundles(repo_root: Path) -> tuple[list[Bundle], list[str]]:
 def sql_backed_families(repo_root: Path) -> set[str]:
     """Return every known source whose spec says it answers through SQL."""
     specs = {
-        **{
-            name: load_bundle(repo_root, name).spec
-            for name in available_bundles(repo_root)
-        },
+        **{name: load_bundle(repo_root, name).spec for name in available_bundles(repo_root)},
         **load_sources_file(repo_root).sources,
     }
     return {name for name, spec in specs.items() if spec.sql_backed}

@@ -37,9 +37,7 @@ class ClientHook:
 
 
 CLIENT_HOOKS: dict[Client, ClientHook] = {
-    "claude": ClientHook(
-        CLAUDE_SETTINGS, "PostToolUse", "Edit|Write", '"$CLAUDE_PROJECT_DIR"/'
-    ),
+    "claude": ClientHook(CLAUDE_SETTINGS, "PostToolUse", "Edit|Write", '"$CLAUDE_PROJECT_DIR"/'),
     "codex": ClientHook(
         ".codex/hooks.json",
         "PostToolUse",

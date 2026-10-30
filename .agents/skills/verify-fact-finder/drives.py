@@ -9,9 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-LOREM = (
-    "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor."
-)
+LOREM = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor."
 FILLED_REPORT = """# Report
 
 ## Executive Summary
@@ -155,9 +153,7 @@ def drive_case_lifecycle(drive: Any) -> None:
     case = new_case(drive, "lifecycle")
     drive.expect(["goal", case.name], 0, "/goal", str(case))
     drive.expect(["validate", case.name], 0, "Validation passed")
-    drive.expect(
-        ["validate", case.name, "--strict"], 1, "independent review is missing"
-    )
+    drive.expect(["validate", case.name, "--strict"], 1, "independent review is missing")
     drive.expect(["list"], 0, "lifecycle  in-progress")
     fill(drive, case)
     drive.expect(["validate", case.name, "--strict"], 0, "cannot be proved by a gate")
@@ -165,20 +161,14 @@ def drive_case_lifecycle(drive: Any) -> None:
     with (case / "report.md").open("a") as report:
         report.write("\nLate edit.\n")
     drive.expect(["validate", case.name, "--strict"], 0, "stale for report.md")
-    drive.expect(
-        ["validate", case.name, "--strict", "--pinned"], 1, "stale for report.md"
-    )
-    payload = json.loads(
-        drive.expect(["validate", case.name, "--strict", "--pinned", "--json"], 1)
-    )
+    drive.expect(["validate", case.name, "--strict", "--pinned"], 1, "stale for report.md")
+    payload = json.loads(drive.expect(["validate", case.name, "--strict", "--pinned", "--json"], 1))
     drive.check(payload["passed"] is False, "--json did not report the failure")
     drive.expect(["list"], 0, "lifecycle  decision-stale-review")
 
 
 def drive_quick_answer(drive: Any) -> None:
-    out = drive.expect(
-        ["init", "quick", "--question", "Did failures rise?", "--local-only"], 0
-    )
+    out = drive.expect(["init", "quick", "--question", "Did failures rise?", "--local-only"], 0)
     case = Path(out.split("Path: ", 1)[1].splitlines()[0])
     report = case / "report.md"
     report.write_text(
@@ -194,9 +184,7 @@ def drive_quick_answer(drive: Any) -> None:
         "Exploratory answer: no independent review",
     )
     (case / "queries.sql").write_text("DROP TABLE t")
-    drive.expect(
-        ["validate", case.name, "--strict", "--accept", "try"], 1, "not read-only"
-    )
+    drive.expect(["validate", case.name, "--strict", "--accept", "try"], 1, "not read-only")
     drive.check(not (case / "overrides.json").exists(), "safety was overridden")
 
 
@@ -211,9 +199,7 @@ def drive_lorem_gate(drive: Any) -> None:
     )
     named = new_case(drive, "named")
     fill(drive, named, reviewer="claude")
-    drive.expect(
-        ["validate", named.name, "--strict"], 1, "names no independent reviewer"
-    )
+    drive.expect(["validate", named.name, "--strict"], 1, "names no independent reviewer")
 
 
 def drive_sql_gate(drive: Any) -> None:
@@ -240,17 +226,14 @@ def drive_sources(drive: Any) -> None:
     drive.expect(["source", "enable", "github"], 0, "wired server 'github'")
     drive.expect(["source", "enable", "stripe"], 0, "denied 4 write tools")
     drive.check(
-        "mcp__stripe__create_refund"
-        in (drive.target / ".claude/settings.local.json").read_text(),
+        "mcp__stripe__create_refund" in (drive.target / ".claude/settings.local.json").read_text(),
         "no Claude deny rule",
     )
     drive.check(
         "disabled_tools" in (drive.target / ".codex/config.toml").read_text(),
         "no Codex deny list",
     )
-    drive.expect(
-        ["doctor"], 0, "[PASS] github", "[DECLARED] stripe", "does not contact"
-    )
+    drive.expect(["doctor"], 0, "[PASS] github", "[DECLARED] stripe", "does not contact")
     mcp = drive.target / ".mcp.json"
     good = mcp.read_text()
     mcp.write_text(good.replace("/mcp/readonly", "/mcp"))
@@ -307,9 +290,7 @@ def drive_agent_feedback(drive: Any) -> None:
     drive.expect(["source", "enable", "zendesk"], 0, "added source 'zendesk'")
     drive.expect(["source", "disable", "zendesk"], 0)
     drive.expect(["next"], 0, "research init <slug>")
-    drive.expect(
-        ["init", "q", "--local-only", "--question", "Why?"], 0, "research next"
-    )
+    drive.expect(["init", "q", "--local-only", "--question", "Why?"], 0, "research next")
     case = next((drive.target / "research").glob("*-q"))
     drive.expect(["next", case.name], 0, "research goal")
     (case / "queries.sql").write_text("-- note\nDROP TABLE t;\n")
@@ -317,8 +298,7 @@ def drive_agent_feedback(drive: Any) -> None:
     drive.expect(["lint", str(case / "queries.sql")], 1, "queries.sql:2: not read-only")
     drive.expect(["setup"], 0, "added the edit hook to .claude/settings.json")
     drive.check(
-        "report-edit.sh claude"
-        in (drive.target / ".claude" / "settings.json").read_text(),
+        "report-edit.sh claude" in (drive.target / ".claude" / "settings.json").read_text(),
         "no Claude hook",
     )
     drive.check(

@@ -13,9 +13,7 @@ from .layout import local_today, project_list_setting
 PLACEHOLDER = "<!-- research:placeholder -->"
 NO_SOURCE_FAMILIES = "none"
 EXPLORATORY_LABEL = "Exploratory answer: not independently reviewed."
-RIGOUR = re.compile(
-    r"(?im)^[ \t]*-[ \t]*\*{0,2}Rigour\*{0,2}:\*{0,2}[ \t]*`?([A-Za-z-]+)`?"
-)
+RIGOUR = re.compile(r"(?im)^[ \t]*-[ \t]*\*{0,2}Rigour\*{0,2}:\*{0,2}[ \t]*`?([A-Za-z-]+)`?")
 # Tolerates the bold variants a hand-written brief uses, such as `- **Research shape:**`.
 RESEARCH_SHAPE = re.compile(
     r"(?im)^[ \t]*-[ \t]*\*{0,2}Research shape\*{0,2}:\*{0,2}[ \t]*`?([A-Za-z-]+)`?"
@@ -38,9 +36,7 @@ def with_required_sections(brief: str, fields: tuple[str, ...]) -> str:
     """Add a placeholder section for each field the brief lacks. A present one stays."""
     missing = [name for name in fields if extract_section(brief, name) is None]
     return (
-        brief.rstrip("\n")
-        + "\n"
-        + "".join(f"\n## {name}\n\n{PLACEHOLDER}\n" for name in missing)
+        brief.rstrip("\n") + "\n" + "".join(f"\n## {name}\n\n{PLACEHOLDER}\n" for name in missing)
     )
 
 
@@ -229,9 +225,7 @@ Use this as a lightweight ledger, not a form to fill perfectly.
 """
 
 
-def report_template(
-    template: str, question: str, *, rigour: str = "exploratory"
-) -> str:
+def report_template(template: str, question: str, *, rigour: str = "exploratory") -> str:
     middle_heading = {
         "root-cause": "Ranked Causes",
         "comparison": "Key Differences",

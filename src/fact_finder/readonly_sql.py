@@ -165,12 +165,8 @@ def _token_problem(sql: str, dialect: str, *, in_show: bool = False) -> str | No
             in_show = token.text.upper() == "SHOW"
             at_start = False
         following = tokens[index + 1] if index + 1 < len(tokens) else None
-        if token.token_type == TokenType.DARROW and not (
-            following and _is_literal(following)
-        ):
-            return (
-                "uses ->> without a literal, which Snowflake runs as a second statement"
-            )
+        if token.token_type == TokenType.DARROW and not (following and _is_literal(following)):
+            return "uses ->> without a literal, which Snowflake runs as a second statement"
         if (
             token.token_type in CHAINING_OPERATORS
             and following
@@ -203,12 +199,10 @@ def _explain_problem(body: str, dialect: str) -> str | None:
         remainder = remainder[match.end() :]
     try:
         statements = sqlglot.parse(remainder, dialect=dialect)
-    except (ParseError, TokenError):
+    except ParseError, TokenError:
         return "EXPLAIN has a body that does not parse"
     for statement in statements:
-        if statement is not None and (
-            problem := _statement_problem(statement, dialect)
-        ):
+        if statement is not None and (problem := _statement_problem(statement, dialect)):
             return f"EXPLAIN body {problem}"
     return None
 
@@ -257,9 +251,7 @@ def _statement_problem(statement: exp.Expr, dialect: str) -> str | None:
 
 def _reading_problem(statements: list[exp.Expr | None], dialect: str) -> str | None:
     for statement in statements:
-        if statement is None or isinstance(
-            statement, (exp.Semicolon, *BARE_EXPRESSIONS)
-        ):
+        if statement is None or isinstance(statement, (exp.Semicolon, *BARE_EXPRESSIONS)):
             continue
         if (problem := _statement_problem(statement, dialect)) is not None:
             return f"{statement.sql(dialect=dialect)[:80]!r} {problem}"
@@ -292,9 +284,7 @@ def _bound_query_ids(sql: str, dialect: str) -> set[str]:
             continue
         if at_statement_start:
             ids.update(
-                match.group(1)
-                for comment in token.comments
-                if (match := QUERY_ID.match(comment))
+                match.group(1) for comment in token.comments if (match := QUERY_ID.match(comment))
             )
         at_statement_start = False
     return ids
@@ -366,24 +356,20 @@ class ReadOnlySql:
         if EXECUTABLE_COMMENT.search(text):
             raise UnsafeSqlError("contains an executable /*! comment, which MySQL runs")
         if NESTED_COMMENT.search(text):
-            raise UnsafeSqlError(
-                "contains a nested block comment, which engines read differently"
-            )
+            raise UnsafeSqlError("contains a nested block comment, which engines read differently")
         _reject_unterminated(text)
         counts: list[int] = []
         query_ids: list[set[str]] = []
         for dialect in DIALECTS:
             try:
                 statements = sqlglot.parse(text, dialect=dialect)
-                problem = _reading_problem(statements, dialect) or _token_problem(
-                    text, dialect
-                )
+                problem = _reading_problem(statements, dialect) or _token_problem(text, dialect)
                 if problem is not None:
                     raise UnsafeSqlError(f"{dialect} reading: {problem}")
                 if _recognized(statements):
                     counts.append(_statement_count(statements))
                     query_ids.append(_bound_query_ids(text, dialect))
-            except (ParseError, TokenError):
+            except ParseError, TokenError:
                 continue
             except PARSER_CRASHES as exc:
                 raise UnsafeSqlError(

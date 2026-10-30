@@ -28,7 +28,7 @@ def _mock_urlopen(response_body: dict[str, Any]):
     return cm
 
 
-GSC = {
+GSC: dict[str, Any] = {
     "site": "https://www.example.com/",
     "start_date": "2026-03-01",
     "end_date": "2026-04-06",
@@ -56,9 +56,7 @@ def _fake_credentials():
 class TestGscQuery:
     def test_basic_query(self):
         response = {"rows": [{"keys": ["example"], "clicks": 100}]}
-        with patch.object(
-            urllib.request, "urlopen", return_value=_mock_urlopen(response)
-        ) as mock:
+        with patch.object(urllib.request, "urlopen", return_value=_mock_urlopen(response)) as mock:
             result = gsc_query(**GSC)
 
             assert result == response
@@ -73,9 +71,7 @@ class TestGscQuery:
             assert body["startRow"] == 0
 
     def test_pagination_params(self):
-        with patch.object(
-            urllib.request, "urlopen", return_value=_mock_urlopen({})
-        ) as mock:
+        with patch.object(urllib.request, "urlopen", return_value=_mock_urlopen({})) as mock:
             gsc_query(**GSC, row_limit=50, start_row=200)
 
             body = json.loads(mock.call_args[0][0].data)
@@ -83,9 +79,7 @@ class TestGscQuery:
             assert body["startRow"] == 200
 
     def test_auth_headers(self):
-        with patch.object(
-            urllib.request, "urlopen", return_value=_mock_urlopen({})
-        ) as mock:
+        with patch.object(urllib.request, "urlopen", return_value=_mock_urlopen({})) as mock:
             gsc_query(**GSC)
 
             req = mock.call_args[0][0]
@@ -126,9 +120,7 @@ class TestAuthErrors:
             gsc_query(**GSC)
 
     def test_refresh_failure_raises_google_auth_error(self, _fake_credentials):
-        _fake_credentials.refresh.side_effect = google.auth.exceptions.RefreshError(
-            "expired"
-        )
+        _fake_credentials.refresh.side_effect = google.auth.exceptions.RefreshError("expired")
         with pytest.raises(GoogleAuthError, match="Token refresh failed"):
             gsc_query(**GSC)
 

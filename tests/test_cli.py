@@ -36,17 +36,13 @@ def test_init_creates_the_case_artifacts(repo_root: Path, monkeypatch) -> None:
     assert not (case_path / "evidence.json").exists()
 
 
-def test_decision_init_scaffolds_the_evidence_manifest(
-    repo_root: Path, monkeypatch
-) -> None:
+def test_decision_init_scaffolds_the_evidence_manifest(repo_root: Path, monkeypatch) -> None:
     monkeypatch.chdir(repo_root)
 
     case_path = _init(repo_root, "big-call", "--rigour", "decision")
 
     assert (case_path / "evidence.json").exists()
-    assert "- Rigour: `decision`" in (case_path / "brief.md").read_text(
-        encoding="utf-8"
-    )
+    assert "- Rigour: `decision`" in (case_path / "brief.md").read_text(encoding="utf-8")
 
 
 def test_init_creates_no_machine_state(repo_root: Path, monkeypatch) -> None:
@@ -83,9 +79,7 @@ def test_init_rejects_a_hint_for_a_source_it_does_not_allow(
 ) -> None:
     monkeypatch.chdir(repo_root)
 
-    exit_code = main(
-        ["init", "hinted", "--local-only", "--source-hint", "web-search=x"]
-    )
+    exit_code = main(["init", "hinted", "--local-only", "--source-hint", "web-search=x"])
 
     assert exit_code == 1
     assert "--source-hint names" in capsys.readouterr().err
@@ -99,9 +93,7 @@ def test_init_rejects_an_unknown_source(repo_root: Path, monkeypatch, capsys) ->
     assert not (repo_root / "research").exists()
 
 
-def test_init_is_atomic_when_a_write_fails(
-    repo_root: Path, monkeypatch, capsys
-) -> None:
+def test_init_is_atomic_when_a_write_fails(repo_root: Path, monkeypatch, capsys) -> None:
     """A half-written case looks real to `resolve_case_path`, so leave nothing."""
     monkeypatch.chdir(repo_root)
     real_write = research.write_text
@@ -141,12 +133,8 @@ def test_init_from_spec_uses_supplied_artifacts(repo_root: Path, monkeypatch) ->
 
     case_path = _init(repo_root, "from-spec", "--from-spec", str(spec), "--local-only")
 
-    assert (case_path / "report.md").read_text(
-        encoding="utf-8"
-    ) == "# Supplied report\n"
-    assert "## Allowed Source Families" in (case_path / "brief.md").read_text(
-        encoding="utf-8"
-    )
+    assert (case_path / "report.md").read_text(encoding="utf-8") == "# Supplied report\n"
+    assert "## Allowed Source Families" in (case_path / "brief.md").read_text(encoding="utf-8")
 
 
 def test_init_attaches_context_path(repo_root: Path, monkeypatch) -> None:
@@ -168,9 +156,7 @@ def test_init_attaches_context_path(repo_root: Path, monkeypatch) -> None:
     assert str(context_dir.resolve()) in brief
 
 
-def test_init_rejects_missing_context_path(
-    repo_root: Path, monkeypatch, capsys
-) -> None:
+def test_init_rejects_missing_context_path(repo_root: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(repo_root)
 
     exit_code = main(
@@ -257,9 +243,7 @@ def test_validate_passes_on_a_fresh_case(repo_root: Path, monkeypatch, capsys) -
     assert "Validation passed" in capsys.readouterr().out
 
 
-def test_validate_reports_a_missing_report(
-    repo_root: Path, monkeypatch, capsys
-) -> None:
+def test_validate_reports_a_missing_report(repo_root: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(repo_root)
     case_path = _init(repo_root, "missing-artifact", "--template", "exploration")
     (case_path / "report.md").unlink()
@@ -321,9 +305,7 @@ def test_strict_pass_states_what_the_gate_cannot_prove(
     assert "cannot be proved by a gate" in capsys.readouterr().out
 
 
-def test_list_shows_each_case_with_its_status(
-    repo_root: Path, monkeypatch, capsys
-) -> None:
+def test_list_shows_each_case_with_its_status(repo_root: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(repo_root)
     _init(repo_root, "scaffolded")
     fill_case(repo_root / "research" / "2026-08-17-filled")
@@ -337,9 +319,7 @@ def test_list_shows_each_case_with_its_status(
     lines = dict(line.split() for line in capsys.readouterr().out.splitlines())
     assert lines["2026-08-17-filled"] == "decision-complete"
     assert lines["2026-08-18-broken"] == "invalid"
-    assert (
-        next(v for k, v in lines.items() if k.endswith("scaffolded")) == "in-progress"
-    )
+    assert next(v for k, v in lines.items() if k.endswith("scaffolded")) == "in-progress"
     assert not any(name.startswith(".") for name in lines)
 
 
@@ -384,9 +364,7 @@ def test_outside_a_project_is_a_clean_error(tmp_path, monkeypatch, capsys) -> No
 
 
 @pytest.mark.parametrize("command", ["list", "doctor", "setup"])
-def test_consumer_repo_is_recognized_by_its_tool_table(
-    tmp_path, monkeypatch, command
-) -> None:
+def test_consumer_repo_is_recognized_by_its_tool_table(tmp_path, monkeypatch, command) -> None:
     (tmp_path / "pyproject.toml").write_text(
         "[project]\nname = 'consumer'\n\n[tool.fact-finder]\n",
         encoding="utf-8",
@@ -396,9 +374,7 @@ def test_consumer_repo_is_recognized_by_its_tool_table(
     assert main([command]) == 0
 
 
-def test_validate_json_is_valid_for_a_missing_case(
-    repo_root, monkeypatch, capsys
-) -> None:
+def test_validate_json_is_valid_for_a_missing_case(repo_root, monkeypatch, capsys) -> None:
     monkeypatch.chdir(repo_root)
 
     assert main(["validate", "no-such-case", "--json"]) == 1
@@ -414,9 +390,7 @@ def _root_cause_case_with_bad_plan(repo_root: Path) -> Path:
     return case_path
 
 
-def test_validate_json_is_valid_for_a_non_utf8_report(
-    repo_root, monkeypatch, capsys
-) -> None:
+def test_validate_json_is_valid_for_a_non_utf8_report(repo_root, monkeypatch, capsys) -> None:
     monkeypatch.chdir(repo_root)
     case_path = _root_cause_case_with_bad_plan(repo_root)
     capsys.readouterr()
@@ -427,9 +401,7 @@ def test_validate_json_is_valid_for_a_non_utf8_report(
     assert any("plan.md" in item for item in payload["warnings"])
     (case_path / "report.md").write_bytes(b"\xff\xfe not utf8")
     assert main(["validate", case_path.name, "--json"]) == 1
-    assert any(
-        "report.md" in item for item in json.loads(capsys.readouterr().out)["errors"]
-    )
+    assert any("report.md" in item for item in json.loads(capsys.readouterr().out)["errors"])
 
 
 def test_one_bad_case_does_not_abort_list(repo_root, monkeypatch, capsys) -> None:
@@ -447,9 +419,7 @@ def test_one_bad_case_does_not_abort_list(repo_root, monkeypatch, capsys) -> Non
     assert sorted(lines.values()) == ["in-progress", "in-progress", "invalid"]
 
 
-def test_deep_evidence_snapshot_is_a_clean_error(
-    repo_root, monkeypatch, capsys
-) -> None:
+def test_deep_evidence_snapshot_is_a_clean_error(repo_root, monkeypatch, capsys) -> None:
     monkeypatch.chdir(repo_root)
     case_path = _init(repo_root, "deep-snapshot", "--rigour", "decision")
     (case_path / "evidence.json").write_text("[" * 1_000_000, encoding="utf-8")
@@ -460,12 +430,8 @@ def test_deep_evidence_snapshot_is_a_clean_error(
     assert "nested too deeply" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize(
-    "text", ["tool = 1\n", "project = 1\n", "[tool]\nfact-finder = 1\n"]
-)
-def test_malformed_project_tables_are_not_a_traceback(
-    tmp_path, monkeypatch, text
-) -> None:
+@pytest.mark.parametrize("text", ["tool = 1\n", "project = 1\n", "[tool]\nfact-finder = 1\n"])
+def test_malformed_project_tables_are_not_a_traceback(tmp_path, monkeypatch, text) -> None:
     (tmp_path / "pyproject.toml").write_text(text, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
@@ -476,9 +442,7 @@ def test_malformed_project_tables_are_not_a_traceback(
     ("document", "text"),
     [("method", "# Research method"), ("evidence", "review-snapshot")],
 )
-def test_contract_prints_packaged_documents(
-    tmp_path, monkeypatch, capsys, document, text
-) -> None:
+def test_contract_prints_packaged_documents(tmp_path, monkeypatch, capsys, document, text) -> None:
     """A consumer has neither file in its tree, and needs no project root to read them."""
     monkeypatch.chdir(tmp_path)
 
@@ -497,19 +461,13 @@ def test_goal_points_at_the_contract(repo_root, monkeypatch, capsys) -> None:
     assert "research contract method" in capsys.readouterr().out
 
 
-def test_from_spec_scaffolds_a_missing_shape_and_question(
-    repo_root, monkeypatch
-) -> None:
+def test_from_spec_scaffolds_a_missing_shape_and_question(repo_root, monkeypatch) -> None:
     monkeypatch.chdir(repo_root)
     spec = repo_root / "spec"
     spec.mkdir()
-    (spec / "brief.md").write_text(
-        "# Brief\n\n## Scope\n\n- In scope: x\n", encoding="utf-8"
-    )
+    (spec / "brief.md").write_text("# Brief\n\n## Scope\n\n- In scope: x\n", encoding="utf-8")
 
-    case_path = _init(
-        repo_root, "shapeless", "--from-spec", str(spec), "--question", "Why now?"
-    )
+    case_path = _init(repo_root, "shapeless", "--from-spec", str(spec), "--question", "Why now?")
 
     assert main(["validate", case_path.name]) == 0
     brief = (case_path / "brief.md").read_text(encoding="utf-8")
@@ -526,21 +484,15 @@ def test_from_spec_keeps_the_briefs_own_shape(repo_root, monkeypatch) -> None:
         encoding="utf-8",
     )
 
-    case_path = _init(
-        repo_root, "shaped", "--from-spec", str(spec), "--template", "root-cause"
-    )
+    case_path = _init(repo_root, "shaped", "--from-spec", str(spec), "--template", "root-cause")
 
     assert "root-cause" not in (case_path / "brief.md").read_text(encoding="utf-8")
 
 
-def test_quick_answer_needs_very_little_ceremony(
-    repo_root, monkeypatch, capsys
-) -> None:
+def test_quick_answer_needs_very_little_ceremony(repo_root, monkeypatch, capsys) -> None:
     """Question to a passing, labelled answer: init, write report.md, validate."""
     monkeypatch.chdir(repo_root)
-    case_path = _init(
-        repo_root, "quick", "--question", "Did exports fail more in June?"
-    )
+    case_path = _init(repo_root, "quick", "--question", "Did exports fail more in June?")
     report = case_path / "report.md"
     report.write_text(
         report.read_text(encoding="utf-8").replace(
@@ -614,9 +566,7 @@ def test_a_consumers_required_field_is_scaffolded_and_blocks(
     assert "brief.md:" in capsys.readouterr().out
 
     brief.write_text(
-        brief.read_text(encoding="utf-8").replace(
-            "<!-- research:placeholder -->", "Adam"
-        ),
+        brief.read_text(encoding="utf-8").replace("<!-- research:placeholder -->", "Adam"),
         encoding="utf-8",
     )
     assert main(["validate", case_path.name, "--strict"]) == 0
@@ -693,9 +643,7 @@ def test_from_spec_adds_a_consumers_required_field_and_keeps_a_supplied_one(
 ) -> None:
     monkeypatch.chdir(repo_root)
     with (repo_root / "pyproject.toml").open("a", encoding="utf-8") as handle:
-        handle.write(
-            '\n[tool.fact-finder]\nrequired_brief_fields = ["Owner", "Budget"]\n'
-        )
+        handle.write('\n[tool.fact-finder]\nrequired_brief_fields = ["Owner", "Budget"]\n')
     spec = repo_root / "spec"
     spec.mkdir()
     (spec / "brief.md").write_text(
@@ -703,9 +651,7 @@ def test_from_spec_adds_a_consumers_required_field_and_keeps_a_supplied_one(
         encoding="utf-8",
     )
 
-    case_path = _init(
-        repo_root, "spec-fields", "--from-spec", str(spec), "--local-only"
-    )
+    case_path = _init(repo_root, "spec-fields", "--from-spec", str(spec), "--local-only")
 
     brief = (case_path / "brief.md").read_text(encoding="utf-8")
     assert brief.count("## Owner") == 1

@@ -39,7 +39,7 @@ def test_splice_appends_when_section_missing() -> None:
     assert "## Question\n\nWhy?" in result
 
 
-def test_splice_handles_multiple_sections(capsys: pytest.CaptureFixture) -> None:
+def test_splice_handles_multiple_sections(capsys: pytest.CaptureFixture[str]) -> None:
     brief = "## Source Constraints\n\n- first\n\n## Source Constraints\n\n- second\n"
     result = splice(brief, "- replacement")
     captured = capsys.readouterr()
@@ -73,14 +73,14 @@ def test_load_subset(tmp_path: Path) -> None:
     assert result == {"brief": "only brief\n"}
 
 
-def test_load_empty_dir_warns(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_load_empty_dir_warns(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     result = load_from_spec_dir(tmp_path)
     captured = capsys.readouterr()
     assert "no recognized artifact" in captured.err
     assert result == {}
 
 
-def test_load_unknown_files_warn(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_load_unknown_files_warn(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     (tmp_path / "readme.txt").write_text("nope\n", encoding="utf-8")
     (tmp_path / "brief.txt").write_text("wrong ext\n", encoding="utf-8")
     result = load_from_spec_dir(tmp_path)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from support.cases import fill_case, write_review
@@ -34,7 +35,7 @@ def repo(repo_root, monkeypatch):
     return repo_root
 
 
-def _json(capsys, *args: str) -> tuple[int, dict]:
+def _json(capsys, *args: str) -> tuple[int, dict[str, Any]]:
     capsys.readouterr()
     code = main(["validate", *args, "--json"])
     return code, json.loads(capsys.readouterr().out)
@@ -66,9 +67,7 @@ def test_unreadable_queries_fail_closed(repo, rigour) -> None:
         path.chmod(0o644)
 
 
-def test_accepting_a_scaffold_names_every_gap_and_never_says_checked(
-    repo, capsys
-) -> None:
+def test_accepting_a_scaffold_names_every_gap_and_never_says_checked(repo, capsys) -> None:
     case = _init(repo, "--rigour", "decision")
 
     code, payload = _json(capsys, case.name, "--strict", "--accept", "x")
@@ -85,9 +84,7 @@ def test_pinned_accept_on_a_stale_review_is_not_called_fresh(repo, capsys) -> No
     with (case / "report.md").open("a", encoding="utf-8") as handle:
         handle.write("\nA late edit.\n")
 
-    code, payload = _json(
-        capsys, case.name, "--strict", "--pinned", "--accept", "small typo"
-    )
+    code, payload = _json(capsys, case.name, "--strict", "--pinned", "--accept", "small typo")
 
     assert code == 0
     assert "fresh" not in payload["label"]
@@ -226,9 +223,7 @@ def _complete(repo_root: Path) -> Path:
     return case
 
 
-def test_an_unreadable_query_file_in_a_decision_case_names_file_and_fix(
-    repo, capsys
-) -> None:
+def test_an_unreadable_query_file_in_a_decision_case_names_file_and_fix(repo, capsys) -> None:
     case = _complete(repo)
     (case / "queries.sql").write_bytes(b"SELECT '\xe9';\n")
 
@@ -258,9 +253,7 @@ def test_removing_a_hash_from_a_stale_review_cannot_end_up_fresh(repo, capsys) -
     assert f"research review-snapshot {case.name}" in out
 
 
-def test_a_stale_review_fix_names_the_changed_file_and_exact_command(
-    repo, capsys
-) -> None:
+def test_a_stale_review_fix_names_the_changed_file_and_exact_command(repo, capsys) -> None:
     case = _complete(repo)
     with (case / "report.md").open("a", encoding="utf-8") as handle:
         handle.write("\nA late edit.\n")

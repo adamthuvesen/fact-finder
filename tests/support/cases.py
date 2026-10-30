@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 from fact_finder.evidence import review_snapshot
 
@@ -69,7 +70,7 @@ LOCATOR = "examples/local-sources/exports_weekly.csv"
 SOURCE_OBJECTS = f"# Source Objects\n\n- `{LOCATOR}` (accessed 2026-08-17)\n"
 
 
-def evidence_document(artifact: bytes) -> dict:
+def evidence_document(artifact: bytes) -> dict[str, Any]:
     return {
         "schema_version": 1,
         "sources": [
@@ -119,7 +120,7 @@ def evidence_document(artifact: bytes) -> dict:
     }
 
 
-def review_document(case: Path, reviewer: str = "independent-challenger-17") -> dict:
+def review_document(case: Path, reviewer: str = "independent-challenger-17") -> dict[str, Any]:
     return {
         "schema_version": 1,
         "reviewer": reviewer,
@@ -161,9 +162,7 @@ def fill_case(
     artifact = b'{"May": 100, "June": 412}\n'
     (case / "evidence").mkdir(exist_ok=True)
     (case / "evidence" / "weekly.json").write_bytes(artifact)
-    (case / "evidence.json").write_text(
-        json.dumps(evidence_document(artifact)), encoding="utf-8"
-    )
+    (case / "evidence.json").write_text(json.dumps(evidence_document(artifact)), encoding="utf-8")
     write_review(case)
     return case
 
@@ -212,7 +211,5 @@ def fill_with_lorem_ipsum(case: Path) -> Path:
         encoding="utf-8",
     )
     (case / "queries.sql").write_text("-- No SQL used: lorem ipsum\n", encoding="utf-8")
-    (case / "source-objects.md").write_text(
-        f"# Source Objects\n\n- {lorem}\n", encoding="utf-8"
-    )
+    (case / "source-objects.md").write_text(f"# Source Objects\n\n- {lorem}\n", encoding="utf-8")
     return case

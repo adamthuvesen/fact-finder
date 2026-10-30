@@ -72,9 +72,7 @@ def test_write_sql_is_rejected_without_strict(tmp_path: Path) -> None:
 
 
 def test_write_keyword_inside_a_string_literal_is_allowed(tmp_path: Path) -> None:
-    case = build_case(
-        tmp_path, queries="SELECT * FROM audit WHERE action = 'delete';\n"
-    )
+    case = build_case(tmp_path, queries="SELECT * FROM audit WHERE action = 'delete';\n")
 
     assert validate_case(case, strict_completion=True) == []
 
@@ -82,9 +80,7 @@ def test_write_keyword_inside_a_string_literal_is_allowed(tmp_path: Path) -> Non
 def test_use_warehouse_is_allowed_because_the_shipped_allowlist_permits_it(
     tmp_path: Path,
 ) -> None:
-    case = build_case(
-        tmp_path, queries="USE WAREHOUSE ANALYTICS;\nSELECT count(*) FROM exports;\n"
-    )
+    case = build_case(tmp_path, queries="USE WAREHOUSE ANALYTICS;\nSELECT count(*) FROM exports;\n")
 
     assert validate_case(case, strict_completion=True) == []
 
@@ -99,17 +95,12 @@ def test_missing_sql_reason_warns(tmp_path: Path) -> None:
 def test_placeholder_question_warns(tmp_path: Path) -> None:
     case = build_case(tmp_path, brief=BRIEF.replace(QUESTION, "Research: exports"))
 
-    assert any(
-        "question is still the scaffold text" in warning
-        for warning in warnings_of(case)
-    )
+    assert any("question is still the scaffold text" in warning for warning in warnings_of(case))
 
 
 def test_strict_rejects_an_unwritten_report_section(tmp_path: Path) -> None:
     written = "Cohort failures sum to 412, matching the 412 total in the export."
-    case = build_case(
-        tmp_path, report=REPORT.replace(written, f"{PLACEHOLDER} Show it.")
-    )
+    case = build_case(tmp_path, report=REPORT.replace(written, f"{PLACEHOLDER} Show it."))
 
     errors = validate_case(case, strict_completion=True)
 
@@ -121,9 +112,7 @@ def test_real_text_containing_explain_why_passes(tmp_path: Path) -> None:
     written = "Cohort failures sum to 412, matching the 412 total in the export."
     case = build_case(
         tmp_path,
-        report=REPORT.replace(
-            written, f"{written} The change log and cohorts explain why."
-        ),
+        report=REPORT.replace(written, f"{written} The change log and cohorts explain why."),
     )
 
     assert validate_case(case, strict_completion=True) == []
@@ -179,9 +168,7 @@ def test_demo_passes_with_its_review_pinned() -> None:
     assert assess_case(DEMO, strict_completion=True, pinned=True).errors == []
 
 
-@pytest.mark.parametrize(
-    "name", ["brief.md", "report.md", "queries.sql", "evidence/windows.json"]
-)
+@pytest.mark.parametrize("name", ["brief.md", "report.md", "queries.sql", "evidence/windows.json"])
 def test_a_demo_edit_makes_its_review_stale(tmp_path: Path, name: str) -> None:
     case = tmp_path / "demo"
     shutil.copytree(DEMO, case)
@@ -197,9 +184,7 @@ def test_a_demo_edit_makes_its_review_stale(tmp_path: Path, name: str) -> None:
 def test_untouched_shipped_templates_fail_the_completion_gate(tmp_path: Path) -> None:
     case = build_case(tmp_path)
     (case / "notes.md").write_text(notes_template(), encoding="utf-8")
-    (case / "report.md").write_text(
-        report_template("exploration", "Why?"), encoding="utf-8"
-    )
+    (case / "report.md").write_text(report_template("exploration", "Why?"), encoding="utf-8")
     (case / "queries.sql").write_text(queries_template(), encoding="utf-8")
     (case / "source-objects.md").write_text(source_objects_template(), encoding="utf-8")
 
@@ -213,18 +198,14 @@ def test_untouched_shipped_templates_fail_the_completion_gate(tmp_path: Path) ->
 def test_an_unreadable_research_shape_warns(tmp_path: Path) -> None:
     case = build_case(
         tmp_path,
-        brief=BRIEF.replace(
-            "- Research shape: `exploration`", "- Research shape: `bogus`"
-        ),
+        brief=BRIEF.replace("- Research shape: `exploration`", "- Research shape: `bogus`"),
     )
 
     assert any("unknown research shape" in warning for warning in warnings_of(case))
 
 
 def test_missing_research_shape_warns(tmp_path: Path) -> None:
-    case = build_case(
-        tmp_path, brief=BRIEF.replace("- Research shape: `exploration`\n", "")
-    )
+    case = build_case(tmp_path, brief=BRIEF.replace("- Research shape: `exploration`\n", ""))
 
     assert any("Research shape" in warning for warning in warnings_of(case))
 
@@ -238,20 +219,14 @@ def test_missing_research_shape_warns(tmp_path: Path) -> None:
         "- Research shape: `Root-Cause`",
     ],
 )
-def test_research_shape_survives_bold_and_trailing_text(
-    tmp_path: Path, shape_line: str
-) -> None:
-    case = build_case(
-        tmp_path, brief=BRIEF.replace("- Research shape: `exploration`", shape_line)
-    )
+def test_research_shape_survives_bold_and_trailing_text(tmp_path: Path, shape_line: str) -> None:
+    case = build_case(tmp_path, brief=BRIEF.replace("- Research shape: `exploration`", shape_line))
 
     assert any("Hypotheses" in warning for warning in warnings_of(case))
 
 
 def test_select_into_is_rejected(tmp_path: Path) -> None:
-    case = build_case(
-        tmp_path, queries="SELECT week INTO exports_snapshot FROM exports;\n"
-    )
+    case = build_case(tmp_path, queries="SELECT week INTO exports_snapshot FROM exports;\n")
 
     assert any("INTO" in error for error in validate_case(case))
 
@@ -290,9 +265,7 @@ def test_source_objects_parse_into_locator_and_date() -> None:
         "- `db.table` (accessed 2026-13-99)",
     ],
 )
-def test_plain_source_object_warns_and_does_not_block(
-    tmp_path: Path, entry: str
-) -> None:
+def test_plain_source_object_warns_and_does_not_block(tmp_path: Path, entry: str) -> None:
     case = build_case(tmp_path, source_objects=f"{SOURCE_OBJECTS}{entry}\n")
     write_review(case)
 
@@ -315,9 +288,7 @@ def test_unlisted_evidence_locator_warns(tmp_path: Path) -> None:
 
 def _with_family(case: Path, family: str, status: str = "used") -> None:
     brief = (case / "brief.md").read_text(encoding="utf-8")
-    (case / "brief.md").write_text(
-        brief.replace("\nlocal\n", f"\n{family}\n"), encoding="utf-8"
-    )
+    (case / "brief.md").write_text(brief.replace("\nlocal\n", f"\n{family}\n"), encoding="utf-8")
     document = json.loads((case / "evidence.json").read_text(encoding="utf-8"))
     document["coverage"][0]["family"] = family
     document["coverage"][0]["status"] = status
@@ -326,12 +297,8 @@ def _with_family(case: Path, family: str, status: str = "used") -> None:
     write_review(case)
 
 
-@pytest.mark.parametrize(
-    "family", ["snowflake", "bigquery", "postgres", "duckdb", "redshift"]
-)
-def test_sql_backed_family_used_needs_a_preserved_query(
-    tmp_path: Path, family: str
-) -> None:
+@pytest.mark.parametrize("family", ["snowflake", "bigquery", "postgres", "duckdb", "redshift"])
+def test_sql_backed_family_used_needs_a_preserved_query(tmp_path: Path, family: str) -> None:
     case = build_case(tmp_path)
     _with_family(case, family)
 
@@ -356,9 +323,7 @@ def test_other_families_may_state_no_sql(tmp_path: Path, family: str) -> None:
 
 
 def test_sql_backed_family_recorded_as_not_used_needs_no_query(tmp_path: Path) -> None:
-    case = build_case(
-        tmp_path, brief=BRIEF.replace("\nlocal\n", "\nlocal, snowflake\n")
-    )
+    case = build_case(tmp_path, brief=BRIEF.replace("\nlocal\n", "\nlocal, snowflake\n"))
     document = json.loads((case / "evidence.json").read_text(encoding="utf-8"))
     document["coverage"].append(
         {
@@ -395,9 +360,7 @@ def _exploratory_case(tmp_path: Path, **artifacts: str) -> Path:
     case = tmp_path / "2026-08-17-quick"
     case.mkdir()
     (case / "brief.md").write_text(EXPLORATORY_BRIEF, encoding="utf-8")
-    (case / "report.md").write_text(
-        artifacts.get("report", EXPLORATORY_REPORT), encoding="utf-8"
-    )
+    (case / "report.md").write_text(artifacts.get("report", EXPLORATORY_REPORT), encoding="utf-8")
     (case / "queries.sql").write_text(artifacts.get("queries", ""), encoding="utf-8")
     return case
 
@@ -415,22 +378,17 @@ def test_exploratory_report_without_its_label_blocks(tmp_path: Path) -> None:
     report = EXPLORATORY_REPORT.replace(EXPLORATORY_LABEL, "")
     case = _exploratory_case(tmp_path, report=report)
 
-    assert any(
-        "label line" in error for error in validate_case(case, strict_completion=True)
-    )
+    assert any("label line" in error for error in validate_case(case, strict_completion=True))
 
 
 def test_exploratory_wrong_arithmetic_still_blocks(tmp_path: Path) -> None:
-    case = fill_case(
-        tmp_path / "case", brief=EXPLORATORY_BRIEF, report=REPORT + EXPLORATORY_LABEL
-    )
+    case = fill_case(tmp_path / "case", brief=EXPLORATORY_BRIEF, report=REPORT + EXPLORATORY_LABEL)
     document = json.loads((case / "evidence.json").read_text(encoding="utf-8"))
     document["calculations"][0]["result"] = "1"
     (case / "evidence.json").write_text(json.dumps(document), encoding="utf-8")
 
     assert any(
-        "does not reconcile" in error
-        for error in validate_case(case, strict_completion=True)
+        "does not reconcile" in error for error in validate_case(case, strict_completion=True)
     )
 
 
@@ -441,10 +399,7 @@ def test_write_sql_blocks_and_cannot_be_accepted(tmp_path: Path, build) -> None:
     assert accept_findings(case, "I really want this") == []
 
     assert any("not read-only" in error for error in validate_case(case))
-    assert any(
-        "not read-only" in error
-        for error in validate_case(case, strict_completion=True)
-    )
+    assert any("not read-only" in error for error in validate_case(case, strict_completion=True))
     assert not (case / "overrides.json").exists()
 
 
@@ -458,17 +413,14 @@ def test_artifact_outside_the_case_blocks_and_cannot_be_accepted(
 
     accept_findings(case, "accept it")
 
-    assert any(
-        "unsafe case artifact" in e for e in validate_case(case, strict_completion=True)
-    )
+    assert any("unsafe case artifact" in e for e in validate_case(case, strict_completion=True))
 
 
 def test_decision_case_without_a_review_blocks_until_accepted(tmp_path: Path) -> None:
     case = build_case(tmp_path)
     (case / "review.json").unlink()
     assert any(
-        "independent review is missing" in e
-        for e in validate_case(case, strict_completion=True)
+        "independent review is missing" in e for e in validate_case(case, strict_completion=True)
     )
 
     accepted = accept_findings(case, "VP needs it today")
@@ -487,9 +439,7 @@ def test_an_override_does_not_cover_a_new_problem(tmp_path: Path) -> None:
     accept_findings(case, "VP needs it today")
     (case / "report.md").write_text("# Empty\n", encoding="utf-8")
 
-    assert any(
-        "Executive Summary" in e for e in validate_case(case, strict_completion=True)
-    )
+    assert any("Executive Summary" in e for e in validate_case(case, strict_completion=True))
 
 
 def test_blank_override_reason_is_refused(tmp_path: Path) -> None:
@@ -515,6 +465,4 @@ def test_blocked_review_verdict_blocks_a_decision_case(tmp_path: Path) -> None:
     case = build_case(tmp_path)
     write_review(case, verdict="blocked")
 
-    assert any(
-        "verdict is blocked" in e for e in validate_case(case, strict_completion=True)
-    )
+    assert any("verdict is blocked" in e for e in validate_case(case, strict_completion=True))

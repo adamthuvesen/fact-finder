@@ -17,6 +17,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 CLAUDE_MCP = ROOT / ".mcp.json"
@@ -34,7 +35,7 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=ROOT, text=True, capture_output=True, check=False)
 
 
-def _load_servers() -> dict[str, dict]:
+def _load_servers() -> dict[str, dict[str, Any]]:
     if not CLAUDE_MCP.exists():
         return {}
     payload = json.loads(CLAUDE_MCP.read_text(encoding="utf-8"))
@@ -51,9 +52,7 @@ def _check_command(name: str) -> CheckResult:
 def _check_claude_goals() -> CheckResult:
     """Claude Code has no feature probe for goals, so check for a recent CLI."""
     if not shutil.which("claude"):
-        return CheckResult(
-            "claude-goals", ok=False, message="skipped because claude is missing"
-        )
+        return CheckResult("claude-goals", ok=False, message="skipped because claude is missing")
     result = _run(["claude", "--version"])
     if result.returncode != 0:
         return CheckResult(
@@ -75,8 +74,7 @@ def _check_codex_goals() -> CheckResult:
         )
     result = _run(["codex", "features", "list"])
     enabled = any(
-        line.split()[:3] == ["goals", "stable", "true"]
-        for line in result.stdout.splitlines()
+        line.split()[:3] == ["goals", "stable", "true"] for line in result.stdout.splitlines()
     )
     if result.returncode == 0 and enabled:
         return CheckResult("codex-goals", ok=True, message="stable feature enabled")
@@ -87,7 +85,7 @@ def _check_codex_goals() -> CheckResult:
     )
 
 
-def _check_server(name: str, spec: dict) -> CheckResult:
+def _check_server(name: str, spec: dict[str, Any]) -> CheckResult:
     result = _run(["claude", "mcp", "get", name])
     if result.returncode == 0:
         return CheckResult(name, ok=True, message="reachable from Claude")
@@ -100,13 +98,11 @@ def _check_server(name: str, spec: dict) -> CheckResult:
         # Remote servers authenticate per provider on first use.
         hint += " | First run: use `/mcp` in Claude Code to approve and authenticate."
     else:
-        hint += (
-            " | Run `research source show <name>` for its credential or config step."
-        )
+        hint += " | Run `research source show <name>` for its credential or config step."
     return CheckResult(name, ok=False, message=hint)
 
 
-def _server_checks(servers: dict[str, dict]) -> list[CheckResult]:
+def _server_checks(servers: dict[str, dict[str, Any]]) -> list[CheckResult]:
     if not servers:
         return [
             CheckResult(
@@ -138,17 +134,13 @@ def main() -> int:
     sys.stdout.write(f"Repo: {ROOT}\n\n")
 
     for check in checks:
-        sys.stdout.write(
-            f"[{'PASS' if check.ok else 'FAIL'}] {check.name}: {check.message}\n"
-        )
+        sys.stdout.write(f"[{'PASS' if check.ok else 'FAIL'}] {check.name}: {check.message}\n")
 
     if all(check.ok for check in checks):
         sys.stdout.write("\nReady to run a case inside a native goal.\n")
         return 0
 
-    sys.stdout.write(
-        "\nSee `.agents/docs/setup.md` for authentication and setup steps.\n"
-    )
+    sys.stdout.write("\nSee `.agents/docs/setup.md` for authentication and setup steps.\n")
     return 1
 
 

@@ -44,9 +44,7 @@ def test_setup_keeps_a_users_own_hook(repo_root: Path) -> None:
     settings = repo_root / ".claude" / "settings.json"
     settings.parent.mkdir()
     mine = {"matcher": "Bash", "hooks": [{"type": "command", "command": "mine"}]}
-    settings.write_text(
-        json.dumps({"hooks": {"PostToolUse": [mine]}}), encoding="utf-8"
-    )
+    settings.write_text(json.dumps({"hooks": {"PostToolUse": [mine]}}), encoding="utf-8")
 
     install_hooks(repo_root)
 
@@ -87,9 +85,7 @@ def test_a_malformed_hook_file_changes_nothing(repo_root: Path) -> None:
     ],
 )
 def test_edited_files_reads_each_client(hook_input: str, expected: list[str]) -> None:
-    assert edited_files(hook_input, Path("/r")) == [
-        str(Path("/r") / path) for path in expected
-    ]
+    assert edited_files(hook_input, Path("/r")) == [str(Path("/r") / path) for path in expected]
 
 
 def test_hook_report_uses_each_clients_output_key() -> None:
@@ -267,9 +263,7 @@ def test_quick_fails_on_a_problem_and_passes_on_no_change(tmp_path: Path) -> Non
     assert "Fix: good" in out
 
 
-def test_quick_catches_a_write_in_an_ignored_local_case(
-    repo_root: Path, capsys
-) -> None:
+def test_quick_catches_a_write_in_an_ignored_local_case(repo_root: Path, capsys) -> None:
     case = repo_root / "research" / "2026-01-01-case"
     case.mkdir(parents=True)
     fill_case(case)
@@ -351,9 +345,7 @@ def test_a_crashed_type_checker_is_not_a_pass(tmp_path: Path) -> None:
     assert "crashed" in out
 
 
-def test_the_hook_ignores_a_file_outside_the_repo(
-    repo_root: Path, tmp_path: Path
-) -> None:
+def test_the_hook_ignores_a_file_outside_the_repo(repo_root: Path, tmp_path: Path) -> None:
     inside = repo_root / "a.py"
     outside = tmp_path / "elsewhere.py"
 
@@ -381,9 +373,7 @@ def test_a_patch_path_is_read_against_the_hook_cwd(repo_root: Path) -> None:
 def test_hook_output_is_capped_with_a_command_for_the_rest() -> None:
     text = "\n".join(f"line {number}" for number in range(2000))
 
-    context = json.loads(hook_report("claude", text))["hookSpecificOutput"][
-        "additionalContext"
-    ]
+    context = json.loads(hook_report("claude", text))["hookSpecificOutput"]["additionalContext"]
 
     assert len(context) < 2200
     last = context.splitlines()[-1]

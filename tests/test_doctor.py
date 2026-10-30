@@ -50,17 +50,12 @@ def test_removed_readonly_suffix_fails(repo, capsys) -> None:
     enable_bundle(repo, "github")
     _edit_json(
         repo / ".mcp.json",
-        lambda d: d["mcpServers"]["github"].update(
-            url="https://api.githubcopilot.com/mcp"
-        ),
+        lambda d: d["mcpServers"]["github"].update(url="https://api.githubcopilot.com/mcp"),
     )
 
     assert main(["doctor"]) == 1
 
-    assert (
-        "breaks its url_suffix control: url does not end with"
-        in capsys.readouterr().out
-    )
+    assert "breaks its url_suffix control: url does not end with" in capsys.readouterr().out
 
 
 def test_extra_flag_breaking_arg_absent_fails(repo) -> None:
@@ -82,9 +77,7 @@ def test_extra_flag_breaking_arg_absent_fails(repo) -> None:
         ("databricks", "YOUR-WORKSPACE", "acme"),
     ],
 )
-def test_placeholders_need_setup_until_filled(
-    repo, capsys, bundle, placeholder, filled
-) -> None:
+def test_placeholders_need_setup_until_filled(repo, capsys, bundle, placeholder, filled) -> None:
     """Following SETUP.md must satisfy doctor, and `research setup` must keep the value."""
     enable_bundle(repo, bundle)
 
@@ -149,9 +142,7 @@ def test_emptied_deny_list_fails(repo, capsys, path, rule) -> None:
 def test_codex_deny_list_removed_fails(repo, capsys) -> None:
     enable_bundle(repo, "stripe")
     path = repo / ".codex" / "config.toml"
-    text = "\n".join(
-        line for line in path.read_text().splitlines() if "disabled_tools" not in line
-    )
+    text = "\n".join(line for line in path.read_text().splitlines() if "disabled_tools" not in line)
     path.write_text(text + "\n")
 
     assert main(["doctor"]) == 1
@@ -211,9 +202,7 @@ def test_missing_snowflake_allowlist_fails(repo) -> None:
         ("[features]\nother = 1\n", "native goals are unset"),
     ],
 )
-def test_invalid_codex_file_or_disabled_goals_fails(
-    repo, capsys, text, message
-) -> None:
+def test_invalid_codex_file_or_disabled_goals_fails(repo, capsys, text, message) -> None:
     (repo / ".codex").mkdir()
     (repo / ".codex" / "config.toml").write_text(text)
 

@@ -43,9 +43,7 @@ def write_documents(documents: dict[Path, str]) -> None:
         raise
 
 
-def extract_section(
-    text: str, heading: str, max_chars: int | None = None
-) -> str | None:
+def extract_section(text: str, heading: str, max_chars: int | None = None) -> str | None:
     """Extract the body of a ## heading section (case-insensitive).
 
     Returns None if the section is absent or empty.

@@ -68,9 +68,7 @@ def test_relative_doc_links_resolve() -> None:
 @pytest.mark.parametrize("limit", ["Agent SDK", "nested slash command"])
 def test_skills_keep_their_hard_limits(skill: str, limit: str) -> None:
     """Ruff bans the SDK in code. Only this text stops an agent running a skill."""
-    text = (ROOT / ".agents" / "skills" / skill / "SKILL.md").read_text(
-        encoding="utf-8"
-    )
+    text = (ROOT / ".agents" / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
 
     assert limit in text
 
@@ -145,9 +143,7 @@ def test_enforced_rules_cite_real_checks() -> None:
     missing = [token for token in cited if _missing_enforcer(token)]
 
     assert cells, "AGENTS.md: Enforced Rules has no rows. Fix: restore the table"
-    assert not uncited, (
-        f"AGENTS.md: Enforced Rules rows {uncited} cite nothing. Fix: cite a check"
-    )
+    assert not uncited, f"AGENTS.md: Enforced Rules rows {uncited} cite nothing. Fix: cite a check"
     assert not missing, (
         f"AGENTS.md: Enforced Rules cites {missing}, which are not `path::name` defined "
         "in that file or a `make` target. Fix: cite the test function or make target"

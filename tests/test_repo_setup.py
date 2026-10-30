@@ -27,9 +27,7 @@ def test_setup_gives_a_consumer_repo_skills_and_configs(tmp_path, monkeypatch) -
     assert main(["setup"]) == 0
 
     assert "stripe" in json.loads((repo / ".mcp.json").read_text())["mcpServers"]
-    assert tomllib.loads((repo / ".codex" / "config.toml").read_text())["features"][
-        "goals"
-    ]
+    assert tomllib.loads((repo / ".codex" / "config.toml").read_text())["features"]["goals"]
     skill = repo / ".agents" / "skills" / "research-goal" / "SKILL.md"
     assert skill.read_text(encoding="utf-8").startswith("---\nname: research-goal")
     assert (repo / ".claude" / "skills" / "research-goal" / "SKILL.md").exists()
@@ -43,9 +41,7 @@ def test_skill_links_are_relative(tmp_path, monkeypatch) -> None:
     assert not (repo / ".agents" / "skills" / "research-goal").readlink().is_absolute()
 
 
-def test_second_setup_reports_and_changes_nothing(
-    tmp_path, monkeypatch, capsys
-) -> None:
+def test_second_setup_reports_and_changes_nothing(tmp_path, monkeypatch, capsys) -> None:
     repo = _consumer(tmp_path, monkeypatch)
     main(["source", "enable", "stripe"])
     main(["setup"])
@@ -58,9 +54,7 @@ def test_second_setup_reports_and_changes_nothing(
     assert {p: p.read_bytes() for p in repo.rglob("*") if p.is_file()} == before
 
 
-def test_setup_reports_a_restored_server_and_deny_list(
-    tmp_path, monkeypatch, capsys
-) -> None:
+def test_setup_reports_a_restored_server_and_deny_list(tmp_path, monkeypatch, capsys) -> None:
     repo = _consumer(tmp_path, monkeypatch)
     main(["source", "enable", "stripe"])
     (repo / ".cursor" / "mcp.json").write_text('{"mcpServers": {}}')
@@ -121,9 +115,7 @@ def test_setup_repoints_a_stale_engine_link(tmp_path, monkeypatch) -> None:
 
 
 def test_the_old_settings_table_names_its_fix(tmp_path, monkeypatch, capsys) -> None:
-    (tmp_path / "pyproject.toml").write_text(
-        "[tool.agentic-research-loop]\n", encoding="utf-8"
-    )
+    (tmp_path / "pyproject.toml").write_text("[tool.agentic-research-loop]\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
     assert main(["list"]) == 1

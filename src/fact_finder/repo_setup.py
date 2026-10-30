@@ -22,9 +22,7 @@ def _link_packaged(repo_root: Path, kind: str) -> list[str]:
     target_dir = repo_root / ".agents" / kind
     target_dir.mkdir(parents=True, exist_ok=True)
     actions: list[str] = []
-    for source in sorted(
-        path for path in (PACKAGE / kind).iterdir() if path.name != "__pycache__"
-    ):
+    for source in sorted(path for path in (PACKAGE / kind).iterdir() if path.name != "__pycache__"):
         link = target_dir / source.name
         if link.is_symlink() and link.resolve() == source.resolve():
             continue
@@ -32,9 +30,7 @@ def _link_packaged(repo_root: Path, kind: str) -> list[str]:
             link.unlink()
         elif link.is_symlink() or link.exists():
             continue
-        link.symlink_to(
-            source.resolve().relative_to(target_dir.resolve(), walk_up=True)
-        )
+        link.symlink_to(source.resolve().relative_to(target_dir.resolve(), walk_up=True))
         actions.append(f"linked {source.name} into .agents/{kind}")
     return actions
 

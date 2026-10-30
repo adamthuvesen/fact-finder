@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 from support.checks import validate_evidence
@@ -15,19 +16,15 @@ from fact_finder.evidence import (
 )
 
 
-def _write_evidence(case: Path, evidence: dict) -> None:
+def _write_evidence(case: Path, evidence: dict[str, Any]) -> None:
     (case / "evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
 
 
-def _complete_case(case: Path) -> dict:
+def _complete_case(case: Path) -> dict[str, Any]:
     for name in ("brief.md", "source-objects.md"):
         (case / name).write_text(f"Preserved {name}\n", encoding="utf-8")
-    (case / "queries.sql").write_text(
-        "-- query_id: 01b-query-id\nSELECT 1;\n", encoding="utf-8"
-    )
-    (case / "report.md").write_text(
-        "Registrations rose by 20. [C1]\n", encoding="utf-8"
-    )
+    (case / "queries.sql").write_text("-- query_id: 01b-query-id\nSELECT 1;\n", encoding="utf-8")
+    (case / "report.md").write_text("Registrations rose by 20. [C1]\n", encoding="utf-8")
     artifact = b'{"June":100,"July":120}\n'
     (case / "monthly.json").write_bytes(artifact)
     evidence = {
@@ -94,8 +91,8 @@ def _complete_case(case: Path) -> dict:
     return evidence
 
 
-def _write_review(case: Path, **overrides: object) -> dict:
-    review = {
+def _write_review(case: Path, **overrides: object) -> dict[str, Any]:
+    review: dict[str, Any] = {
         "schema_version": 1,
         "reviewer": "independent-challenger-17",
         "reviewed_hashes": review_snapshot(case),
@@ -195,9 +192,7 @@ def test_source_query_id_must_exist_in_queries_sql(tmp_path: Path) -> None:
         "subagent",
     ],
 )
-def test_review_rejects_self_review_and_bare_client_names(
-    tmp_path: Path, reviewer: str
-) -> None:
+def test_review_rejects_self_review_and_bare_client_names(tmp_path: Path, reviewer: str) -> None:
     _complete_case(tmp_path)
     _write_review(tmp_path, reviewer=reviewer)
 
@@ -215,9 +210,7 @@ def test_review_rejects_self_review_and_bare_client_names(
         "Task(reviewer-a4f21)",
     ],
 )
-def test_review_accepts_a_specific_reviewer_identity(
-    tmp_path: Path, reviewer: str
-) -> None:
+def test_review_accepts_a_specific_reviewer_identity(tmp_path: Path, reviewer: str) -> None:
     _complete_case(tmp_path)
     _write_review(tmp_path, reviewer=reviewer)
 
@@ -235,9 +228,7 @@ def test_review_accepts_a_specific_reviewer_identity(
         "monthly.json",
     ],
 )
-def test_review_is_invalidated_by_any_reviewed_input_change(
-    tmp_path: Path, changed: str
-) -> None:
+def test_review_is_invalidated_by_any_reviewed_input_change(tmp_path: Path, changed: str) -> None:
     _complete_case(tmp_path)
     with (tmp_path / changed).open("a", encoding="utf-8") as handle:
         handle.write("\n")
@@ -276,9 +267,7 @@ def test_artifact_path_must_stay_in_case(tmp_path: Path, path: str) -> None:
     evidence["sources"][0]["artifact"] = path
     _write_evidence(tmp_path, evidence)
 
-    assert any(
-        "unsafe case artifact path" in error for error in validate_evidence(tmp_path)
-    )
+    assert any("unsafe case artifact path" in error for error in validate_evidence(tmp_path))
 
 
 def test_source_symlink_cannot_escape_case(tmp_path: Path) -> None:
@@ -291,14 +280,10 @@ def test_source_symlink_cannot_escape_case(tmp_path: Path) -> None:
     evidence["sources"][0]["artifact"] = "linked.json"
     _write_evidence(case, evidence)
 
-    assert any(
-        "escapes the case directory" in error for error in validate_evidence(case)
-    )
+    assert any("escapes the case directory" in error for error in validate_evidence(case))
 
 
-@pytest.mark.parametrize(
-    "collection", ["sources", "claims", "calculations", "coverage"]
-)
+@pytest.mark.parametrize("collection", ["sources", "claims", "calculations", "coverage"])
 def test_duplicate_identifiers_are_rejected(tmp_path: Path, collection: str) -> None:
     evidence = _complete_case(tmp_path)
     evidence[collection].append(evidence[collection][0])
@@ -459,21 +444,15 @@ def test_review_must_include_source_artifact_hashes(tmp_path: Path) -> None:
     del hashes["monthly.json"]
     _write_review(tmp_path, reviewed_hashes=hashes)
 
-    assert any(
-        "exactly the review inputs" in error for error in validate_evidence(tmp_path)
-    )
+    assert any("exactly the review inputs" in error for error in validate_evidence(tmp_path))
 
 
 def test_json_schema_is_available_for_authors() -> None:
     assert Evidence.model_json_schema()["additionalProperties"] is False
 
 
-@pytest.mark.parametrize(
-    "field,value", [("kind", "causal"), ("status", "inconclusive")]
-)
-def test_uncertain_claims_require_limitations(
-    tmp_path: Path, field: str, value: str
-) -> None:
+@pytest.mark.parametrize("field,value", [("kind", "causal"), ("status", "inconclusive")])
+def test_uncertain_claims_require_limitations(tmp_path: Path, field: str, value: str) -> None:
     evidence = _complete_case(tmp_path)
     evidence["claims"][0].update({field: value, "limitations": []})
     _write_evidence(tmp_path, evidence)
@@ -484,16 +463,12 @@ def test_uncertain_claims_require_limitations(
 def test_decimal_overflow_is_a_validation_error(tmp_path: Path) -> None:
     evidence = _complete_case(tmp_path)
     calculation = evidence["calculations"][0]
-    calculation.update(
-        operation="ratio", denominator="June", unit="ratio", result="1e999999"
-    )
+    calculation.update(operation="ratio", denominator="June", unit="ratio", result="1e999999")
     calculation["inputs"][0]["value"] = "1e999999"
     calculation["inputs"][1]["value"] = "0.01"
     _write_evidence(tmp_path, evidence)
 
-    assert any(
-        "could not be evaluated" in error for error in validate_evidence(tmp_path)
-    )
+    assert any("could not be evaluated" in error for error in validate_evidence(tmp_path))
 
 
 def test_decimal_sum_preserves_precision_beyond_default_context(tmp_path: Path) -> None:
@@ -538,8 +513,6 @@ def test_duplicate_json_keys_are_rejected(tmp_path: Path) -> None:
     _complete_case(tmp_path)
     path = tmp_path / "evidence.json"
     path.write_text(
-        path.read_text().replace(
-            '"schema_version": 1', '"schema_version": 2, "schema_version": 1'
-        )
+        path.read_text().replace('"schema_version": 1', '"schema_version": 2, "schema_version": 1')
     )
     assert any("duplicate JSON key" in error for error in validate_evidence(tmp_path))

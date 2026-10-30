@@ -80,9 +80,7 @@ def _brief_text(
         )
     if RIGOUR.search(brief) is None:
         scope = extract_section(brief, "Scope") or ""
-        brief = replace_markdown_section(
-            brief, "Scope", f"{scope}\n- Rigour: `{rigour}`".strip()
-        )
+        brief = replace_markdown_section(brief, "Scope", f"{scope}\n- Rigour: `{rigour}`".strip())
     if extract_section(brief, "Question") is None:
         brief = replace_markdown_section(brief, "Question", question)
     brief = replace_markdown_section(
@@ -159,17 +157,14 @@ def create_manual(
         write_text(notes_path(staging), supplied.get("notes") or notes_template())
         write_text(
             report_path(staging),
-            supplied.get("report")
-            or report_template(template, case_question, rigour=rigour),
+            supplied.get("report") or report_template(template, case_question, rigour=rigour),
         )
         write_text(queries_path(staging), supplied.get("queries") or queries_template())
         write_text(
             source_objects_path(staging),
             supplied.get("source_objects") or source_objects_template(),
         )
-        write_text(
-            plan_path(staging), supplied.get("plan") or plan_template(template=template)
-        )
+        write_text(plan_path(staging), supplied.get("plan") or plan_template(template=template))
         staging.chmod(0o755)
         staging.rename(path)
     except BaseException:
@@ -184,9 +179,7 @@ def case_paths(repo_root: Path) -> list[Path]:
     if not parent.is_dir():
         return []
     return sorted(
-        path
-        for path in parent.iterdir()
-        if path.is_dir() and not path.name.startswith(".")
+        path for path in parent.iterdir() if path.is_dir() and not path.name.startswith(".")
     )
 
 
@@ -205,9 +198,7 @@ def _resolve_existing_case_path(candidate: Path, expected_parent: Path) -> Path 
 
 
 def _suffix_case_match(repo_root: Path, value: str) -> Path | None:
-    matches = [
-        path for path in case_paths(repo_root) if path.name.endswith(f"-{value}")
-    ]
+    matches = [path for path in case_paths(repo_root) if path.name.endswith(f"-{value}")]
     if len(matches) > 1:
         names = ", ".join(path.name for path in matches)
         raise FileNotFoundError(
@@ -223,9 +214,7 @@ def resolve_case_path(repo_root: Path, value: str) -> Path:
     FileNotFoundError if the case is missing or resolves outside research_dir.
     """
     if not value:
-        raise FileNotFoundError(
-            problem("the case id is empty", "pass a case from `research list`")
-        )
+        raise FileNotFoundError(problem("the case id is empty", "pass a case from `research list`"))
     expected_parent = research_dir(repo_root).resolve()
     resolved = _resolve_existing_case_path(
         Path(value), expected_parent
@@ -235,9 +224,7 @@ def resolve_case_path(repo_root: Path, value: str) -> Path:
     resolved = _suffix_case_match(repo_root, value)
     if resolved is not None:
         return resolved
-    raise FileNotFoundError(
-        problem(f"no case {value}", "pass a case from `research list`")
-    )
+    raise FileNotFoundError(problem(f"no case {value}", "pass a case from `research list`"))
 
 
 def render_goal(case_path: Path) -> str:
@@ -252,11 +239,8 @@ def render_goal(case_path: Path) -> str:
     sources = [
         stripped.removeprefix("-").strip()
         for line in constraints.splitlines()
-        if (stripped := line.strip()).startswith("-")
-        and stripped.removeprefix("-").strip()
+        if (stripped := line.strip()).startswith("-") and stripped.removeprefix("-").strip()
     ]
     match = RIGOUR.search(brief)
     rigour = match.group(1).lower() if match else "decision"
-    return goal_prompt(
-        case_path, sources or ["No sources recorded in brief.md."], rigour=rigour
-    )
+    return goal_prompt(case_path, sources or ["No sources recorded in brief.md."], rigour=rigour)

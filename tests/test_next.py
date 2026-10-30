@@ -46,9 +46,7 @@ def test_no_argument_picks_the_open_case(repo_root: Path, capsys) -> None:
     assert case.name in _next(capsys)
 
 
-def test_a_decision_case_with_no_review_points_at_the_snapshot(
-    repo_root: Path, capsys
-) -> None:
+def test_a_decision_case_with_no_review_points_at_the_snapshot(repo_root: Path, capsys) -> None:
     case = repo_root / "research" / "2026-01-01-case"
     case.mkdir(parents=True)
     fill_case(case)
@@ -69,9 +67,7 @@ def test_a_write_query_comes_first(repo_root: Path, capsys) -> None:
     assert "--strict" in out
 
 
-def test_a_blocked_case_shows_the_first_fix_and_the_count(
-    repo_root: Path, capsys
-) -> None:
+def test_a_blocked_case_shows_the_first_fix_and_the_count(repo_root: Path, capsys) -> None:
     case = repo_root / "research" / "2026-01-01-case"
     case.mkdir(parents=True)
     fill_with_lorem_ipsum(case)
@@ -91,9 +87,7 @@ def test_a_complete_decision_case_needs_nothing(repo_root: Path, capsys) -> None
     assert "Nothing blocks completion." in _next(capsys, case.name)
 
 
-def test_a_stale_review_asks_for_a_new_one_and_never_a_new_hash(
-    repo_root: Path, capsys
-) -> None:
+def test_a_stale_review_asks_for_a_new_one_and_never_a_new_hash(repo_root: Path, capsys) -> None:
     case = repo_root / "research" / "2026-01-01-case"
     case.mkdir(parents=True)
     fill_case(case)
@@ -105,9 +99,7 @@ def test_a_stale_review_asks_for_a_new_one_and_never_a_new_hash(
     assert "new independent reviewer" in out
 
 
-def test_an_exploratory_answer_offers_the_decision_path(
-    repo_root: Path, capsys
-) -> None:
+def test_an_exploratory_answer_offers_the_decision_path(repo_root: Path, capsys) -> None:
     case = _init(repo_root, "fresh")
     report = (case / "report.md").read_text(encoding="utf-8")
     (case / "report.md").write_text(
@@ -170,9 +162,7 @@ def test_the_decision_command_can_be_pasted_as_is(repo_root: Path, capsys) -> No
     )
 
     line = next(
-        entry
-        for entry in _next(capsys, case.name).splitlines()
-        if "--rigour decision" in entry
+        entry for entry in _next(capsys, case.name).splitlines() if "--rigour decision" in entry
     )
     command = shlex.split(line.split("run: ", 1)[1])
 
@@ -190,9 +180,7 @@ def test_the_decision_command_can_be_pasted_as_is(repo_root: Path, capsys) -> No
     assert str(context.resolve()) in brief
 
 
-def test_a_local_only_case_stays_local_in_the_decision_command(
-    repo_root: Path, capsys
-) -> None:
+def test_a_local_only_case_stays_local_in_the_decision_command(repo_root: Path, capsys) -> None:
     case = _init(repo_root, "local")
     report = case / "report.md"
     report.write_text(

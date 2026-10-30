@@ -7,6 +7,7 @@ import subprocess
 import tomllib
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from support.cases import fill_case
@@ -28,7 +29,7 @@ def _complete_case(repo_root: Path) -> Path:
     return case
 
 
-def _edit_evidence(change: Callable[[dict], None]) -> Callable[[Path], None]:
+def _edit_evidence(change: Callable[[dict[str, Any]], None]) -> Callable[[Path], None]:
     def apply(case: Path) -> None:
         path = case / "evidence.json"
         document = json.loads(path.read_text(encoding="utf-8"))
@@ -42,19 +43,19 @@ def _write(name: str, text: str) -> Callable[[Path], object]:
     return lambda case: (case / name).write_text(text, encoding="utf-8")
 
 
-def _unknown_source(document: dict) -> None:
+def _unknown_source(document: dict[str, Any]) -> None:
     document["claims"][0]["source_ids"] = ["S99"]
 
 
-def _unknown_field(document: dict) -> None:
+def _unknown_field(document: dict[str, Any]) -> None:
     document["claims"][0]["invented"] = "x"
 
 
-def _bad_status(document: dict) -> None:
+def _bad_status(document: dict[str, Any]) -> None:
     document["coverage"][0]["status"] = "maybe"
 
 
-def _missing_field(document: dict) -> None:
+def _missing_field(document: dict[str, Any]) -> None:
     del document["sources"][0]["route"]
 
 

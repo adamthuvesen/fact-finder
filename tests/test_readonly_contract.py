@@ -45,9 +45,7 @@ def test_bundle_satisfies_its_declared_control(bundle: Bundle, tmp_path: Path) -
             for name, content in bundle.server.support_files.items():
                 (tmp_path / "config" / name).write_text(content, encoding="utf-8")
         assert (
-            control_problem(
-                tmp_path, control, url=bundle.server.url or "", args=bundle.server.args
-            )
+            control_problem(tmp_path, control, url=bundle.server.url or "", args=bundle.server.args)
             is None
         )
     else:

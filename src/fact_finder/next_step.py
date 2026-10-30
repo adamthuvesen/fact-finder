@@ -41,14 +41,10 @@ def _decision_command(case: Path) -> str:
     brief = read_text(brief_path(case))
     families = [
         family.strip()
-        for family in (extract_section(brief, "Allowed Source Families") or "").split(
-            ","
-        )
+        for family in (extract_section(brief, "Allowed Source Families") or "").split(",")
         if family.strip() not in {"", NO_SOURCE_FAMILIES, LOCAL_FAMILY}
     ]
-    context_paths = LOCAL_CONTEXT.findall(
-        extract_section(brief, "Source Constraints") or ""
-    )
+    context_paths = LOCAL_CONTEXT.findall(extract_section(brief, "Source Constraints") or "")
     return shlex.join(
         [
             *RUN.split(),
@@ -96,8 +92,7 @@ def next_for_case(case: Path) -> list[str]:
     if result.errors:
         command = (
             f'{RUN} review-snapshot "{case}"'
-            if len(result.errors) == 1
-            and "independent review is missing" in result.errors[0]
+            if len(result.errors) == 1 and "independent review is missing" in result.errors[0]
             else validate
         )
         return [

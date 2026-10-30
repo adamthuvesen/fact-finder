@@ -91,9 +91,7 @@ def test_comment_only_text_has_no_statements() -> None:
 
 
 def test_no_sql_reason_is_read_from_a_statement_free_file() -> None:
-    parsed = ReadOnlySql.parse(
-        "-- No SQL used: the case reads a CSV.\n-- More detail.\n"
-    )
+    parsed = ReadOnlySql.parse("-- No SQL used: the case reads a CSV.\n-- More detail.\n")
 
     assert parsed.statement_count == 0
     assert parsed.no_sql_reason == "the case reads a CSV."
@@ -105,9 +103,7 @@ def test_no_sql_reason_does_not_excuse_a_write() -> None:
 
 
 def test_query_ids_are_bound_to_the_statement_they_lead() -> None:
-    parsed = ReadOnlySql.parse(
-        "-- query_id: q-1\nSELECT 1;\n/* query_id: q-2 */ SELECT 2;\n"
-    )
+    parsed = ReadOnlySql.parse("-- query_id: q-1\nSELECT 1;\n/* query_id: q-2 */ SELECT 2;\n")
 
     assert parsed.query_ids == {"q-1", "q-2"}
 

@@ -106,9 +106,7 @@ class ServerDefinition(StrictModel):
     @model_validator(mode="after")
     def one_transport(self) -> Self:
         if (self.url is None) == (self.command is None):
-            raise ValueError(
-                "server has both or neither of url and command. Fix: keep one"
-            )
+            raise ValueError("server has both or neither of url and command. Fix: keep one")
         return self
 
 
@@ -173,9 +171,7 @@ def _parse_document(text: str, label: str) -> SourcesFile:
     try:
         parsed = SourcesFile.model_validate_json(text)
     except ValidationError as exc:
-        raise SourceConfigError(
-            "\n".join(validation_problems(exc, label, text))
-        ) from exc
+        raise SourceConfigError("\n".join(validation_problems(exc, label, text))) from exc
     for name in parsed.sources:
         if not NAME_PATTERN.match(name):
             raise SourceConfigError(
@@ -283,13 +279,9 @@ def source_constraints(
         )
     plan_lines = [registry[name].plan_line for name in names]
     hint_lines = [
-        f"{registry[name].display_name} focus: {hints[name]}"
-        for name in names
-        if name in hints
+        f"{registry[name].display_name} focus: {hints[name]}" for name in names if name in hints
     ]
     local_lines = [
-        line
-        for path in local_context_paths or []
-        for line in _local_context_lines(path)
+        line for path in local_context_paths or [] for line in _local_context_lines(path)
     ]
     return [*plan_lines, *hint_lines, *local_lines]

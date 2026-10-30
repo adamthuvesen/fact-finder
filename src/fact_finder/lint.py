@@ -70,11 +70,7 @@ def lint_file(raw_path: str, repo_root: Path) -> list[str]:
     """Check one file by what it is. A file with no check reports nothing."""
     path = Path(raw_path).resolve()
     if not path.is_file():
-        return [
-            problem(
-                f"{raw_path} does not exist", "pass a file that exists", file=raw_path
-            )
-        ]
+        return [problem(f"{raw_path} does not exist", "pass a file that exists", file=raw_path)]
     root = repo_root.resolve()
     if path == root / USER_SOURCES_FILE:
         try:

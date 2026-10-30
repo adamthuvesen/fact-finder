@@ -80,9 +80,7 @@ def _authed_request(url: str, body: dict[str, Any]) -> dict[str, Any]:
             return json.loads(response.read())
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace").strip() or exc.reason
-        raise GoogleApiError(
-            f"Google API request failed ({exc.code}): {detail}"
-        ) from exc
+        raise GoogleApiError(f"Google API request failed ({exc.code}): {detail}") from exc
     except urllib.error.URLError as exc:
         raise GoogleApiError(f"Google API request failed: {exc.reason}") from exc
     except TimeoutError as exc:

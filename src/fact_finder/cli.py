@@ -59,9 +59,7 @@ def _iso_date(value: str) -> str:
 def _comma_list(value: str) -> list[str]:
     values = [item.strip() for item in value.split(",")]
     if any(not item for item in values):
-        raise argparse.ArgumentTypeError(
-            "must be a comma-separated list with no blanks"
-        )
+        raise argparse.ArgumentTypeError("must be a comma-separated list with no blanks")
     return values
 
 
@@ -174,9 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_init_arguments(subparsers.add_parser("init", help="Create a case workspace"))
 
-    goal_parser = subparsers.add_parser(
-        "goal", help="Print the native /goal command for a case"
-    )
+    goal_parser = subparsers.add_parser("goal", help="Print the native /goal command for a case")
     goal_parser.add_argument("case", help="Case id or path")
 
     validate_parser = subparsers.add_parser("validate", help="Validate a case")
@@ -196,9 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="REASON",
         help="With --strict, accept the rigour blocks for this reason. The override is recorded and labelled. Safety cannot be overridden.",
     )
-    validate_parser.add_argument(
-        "--json", action="store_true", help="Print the result as JSON."
-    )
+    validate_parser.add_argument("--json", action="store_true", help="Print the result as JSON.")
 
     subparsers.add_parser("list", help="List cases with their status")
 
@@ -227,9 +221,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     hook_report_parser.add_argument("client", choices=("claude", "cursor", "codex"))
 
-    schema_parser = subparsers.add_parser(
-        "schema", help="Print an evidence contract JSON schema"
-    )
+    schema_parser = subparsers.add_parser("schema", help="Print an evidence contract JSON schema")
     schema_parser.add_argument("artifact", choices=("evidence", "review"))
     snapshot_parser = subparsers.add_parser(
         "review-snapshot", help="Print current artifact hashes. This approves nothing."
@@ -277,9 +269,7 @@ def _init_case(repo_root: Path, args: argparse.Namespace) -> int:
 
 
 def _empty_assessment(error: str) -> Assessment:
-    return Assessment(
-        rigour="decision", strict=True, errors=error.split("\n"), warnings=[]
-    )
+    return Assessment(rigour="decision", strict=True, errors=error.split("\n"), warnings=[])
 
 
 def _assess(repo_root: Path, args: argparse.Namespace) -> tuple[str, Assessment]:
@@ -298,9 +288,7 @@ def _assess(repo_root: Path, args: argparse.Namespace) -> tuple[str, Assessment]
 def _validate_command(repo_root: Path, args: argparse.Namespace) -> int:
     if (args.accept is not None or args.pinned) and not args.strict:
         raise ValueError(
-            problem(
-                "--accept and --pinned need --strict", "add --strict to the command"
-            )
+            problem("--accept and --pinned need --strict", "add --strict to the command")
         )
     case, result = _assess(repo_root, args)
     if args.json:
@@ -379,9 +367,7 @@ def _source_command(repo_root: Path, args: argparse.Namespace) -> int:
     if args.source_command == "new":
         return _print_actions(scaffold_bundle(repo_root, args.name))
     action = enable_bundle if args.source_command == "enable" else disable_bundle
-    return _print_actions(
-        action(repo_root, args.name) or [f"'{args.name}' was not enabled"]
-    )
+    return _print_actions(action(repo_root, args.name) or [f"'{args.name}' was not enabled"])
 
 
 def _next_command(repo_root: Path, args: argparse.Namespace) -> int:
@@ -396,9 +382,7 @@ def _next_command(repo_root: Path, args: argparse.Namespace) -> int:
 
 def _lint_command(repo_root: Path, args: argparse.Namespace) -> int:
     if not args.files and not args.local_cases:
-        raise ValueError(
-            problem("no file to lint", "pass a file, or use --local-cases")
-        )
+        raise ValueError(problem("no file to lint", "pass a file, or use --local-cases"))
     problems = [entry for path in args.files for entry in lint_file(path, repo_root)]
     if args.local_cases:
         problems.extend(local_case_problems(repo_root))
@@ -483,11 +467,7 @@ def _snapshot_command(repo_root: Path, args: argparse.Namespace) -> int:
 
 
 def _contract_command(_repo_root: Path, args: argparse.Namespace) -> int:
-    print(
-        (CONTRACT_DIR / f"{CONTRACT_FILES[args.document]}.md").read_text(
-            encoding="utf-8"
-        )
-    )
+    print((CONTRACT_DIR / f"{CONTRACT_FILES[args.document]}.md").read_text(encoding="utf-8"))
     return 0
 
 

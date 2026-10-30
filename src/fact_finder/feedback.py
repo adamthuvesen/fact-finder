@@ -12,9 +12,7 @@ from pydantic import ValidationError
 _FIX = ". Fix: "
 
 
-def problem(
-    what: str, fix: str, *, file: str | None = None, line: int | None = None
-) -> str:
+def problem(what: str, fix: str, *, file: str | None = None, line: int | None = None) -> str:
     """Render one problem. `file` and `line` are left out when they are not known."""
     where = f"{file}:{line}" if file and line else file
     prefix = f"{where}: " if where else ""
@@ -78,9 +76,7 @@ def _line_for_text(text: str, what: str) -> int | None:
     return None
 
 
-def validation_problems(
-    exc: ValidationError, file: str, text: str | None = None
-) -> list[str]:
+def validation_problems(exc: ValidationError, file: str, text: str | None = None) -> list[str]:
     """Rewrite a pydantic error for `file`. A validator's own message states its fix."""
     problems: list[str] = []
     for error in exc.errors(include_url=False):

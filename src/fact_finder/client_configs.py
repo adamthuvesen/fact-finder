@@ -99,9 +99,7 @@ def _value_pattern(value: str, server: ServerDefinition) -> str:
 def _matches(value: object, default: str | None, server: ServerDefinition) -> bool:
     if default is None:
         return value is None
-    return isinstance(value, str) and bool(
-        re.fullmatch(_value_pattern(default, server), value)
-    )
+    return isinstance(value, str) and bool(re.fullmatch(_value_pattern(default, server), value))
 
 
 def _without_optional_args(args: list[str], server: ServerDefinition) -> list[str]:
@@ -130,8 +128,7 @@ def server_differences(entry: dict[str, Any], server: ServerDefinition) -> list[
     ]
     args = _without_optional_args(entry.get("args", []), server)
     if len(args) != len(server.args) or not all(
-        _matches(arg, default, server)
-        for arg, default in zip(args, server.args, strict=True)
+        _matches(arg, default, server) for arg, default in zip(args, server.args, strict=True)
     ):
         differences.append(f"args are {args!r}")
     return differences
@@ -179,11 +176,7 @@ def _child_object(parent: JsonObject, key: str) -> JsonObject:
 def deny_rules(document: JsonObject) -> list[str]:
     permissions = document.get("permissions")
     deny = permissions.get("deny") if isinstance(permissions, dict) else None
-    return (
-        [rule for rule in deny if isinstance(rule, str)]
-        if isinstance(deny, list)
-        else []
-    )
+    return [rule for rule in deny if isinstance(rule, str)] if isinstance(deny, list) else []
 
 
 def _add_deny_rules(document: JsonObject, rules: list[str]) -> list[str]:
@@ -296,11 +289,7 @@ class ClientConfigs:
                     except ValidationError as exc:
                         error = exc.errors()[0]
                         location = field + "".join(f"[{part}]" for part in error["loc"])
-                        shape = (
-                            "a list of strings"
-                            if error["type"] == "list_type"
-                            else "a string"
-                        )
+                        shape = "a list of strings" if error["type"] == "list_type" else "a string"
                         raise SourceConfigError(
                             problem(
                                 f"server '{name}' field {location} must be {shape}",
@@ -415,39 +404,27 @@ class ClientConfigs:
         owned_clients = owned.clients if owned else []
         conflicts = self.conflicts(server, owned_clients)
         added_clients: list[Client] = [
-            client
-            for client in CLIENTS
-            if not self.server_entry(client, server.server_name)
+            client for client in CLIENTS if not self.server_entry(client, server.server_name)
         ]
         for client in added_clients:
             self._add_server(client, server)
         managed: list[Client] = [
-            client
-            for client in CLIENTS
-            if client in owned_clients or client in added_clients
+            client for client in CLIENTS if client in owned_clients or client in added_clients
         ]
         updated_clients: list[Client] = [
             client
             for client in managed
-            if server_differences(
-                self.server_entry(client, server.server_name) or {}, server
-            )
+            if server_differences(self.server_entry(client, server.server_name) or {}, server)
         ]
         for client in updated_clients:
             self._retarget(client, server)
-        added_codex = (
-            self._add_codex_disabled_tools(server) if "codex" in managed else []
-        )
+        added_codex = self._add_codex_disabled_tools(server) if "codex" in managed else []
         added_claude = (
             []
             if "claude" in conflicts
             else _add_deny_rules(
                 self.claude_local_settings,
-                [
-                    rule
-                    for rule in claude_deny_rules(server)
-                    if rule not in self.claude_shared_deny
-                ],
+                [rule for rule in claude_deny_rules(server) if rule not in self.claude_shared_deny],
             )
         )
         added_cursor = (
@@ -458,12 +435,8 @@ class ClientConfigs:
         wiring = Wiring(
             server_name=server.server_name,
             clients=managed,
-            claude_deny=list(
-                dict.fromkeys([*(owned.claude_deny if owned else []), *added_claude])
-            ),
-            cursor_deny=list(
-                dict.fromkeys([*(owned.cursor_deny if owned else []), *added_cursor])
-            ),
+            claude_deny=list(dict.fromkeys([*(owned.claude_deny if owned else []), *added_claude])),
+            cursor_deny=list(dict.fromkeys([*(owned.cursor_deny if owned else []), *added_cursor])),
         )
         return WireResult(
             wiring=wiring,

@@ -87,19 +87,13 @@ SNAPSHOT_COMMAND = "`research review-snapshot <case>`"
 ACCEPTED_GAPS_START = "<!-- research:accepted-gaps:start -->"
 ACCEPTED_GAPS_END = "<!-- research:accepted-gaps:end -->"
 ACCEPTED_GAPS_BLOCK = re.compile(
-    r"\n?"
-    + re.escape(ACCEPTED_GAPS_START)
-    + r".*?"
-    + re.escape(ACCEPTED_GAPS_END)
-    + r"\n?",
+    r"\n?" + re.escape(ACCEPTED_GAPS_START) + r".*?" + re.escape(ACCEPTED_GAPS_END) + r"\n?",
     re.DOTALL,
 )
 # How a validation finding behaves. `safety` and `structure` always block. `answer`, `wrong`,
 # and `contract` block a completion check by policy. `stale` blocks only on request, and
 # `format` never blocks. See `validation.assess_case`.
-FindingKind = Literal[
-    "safety", "structure", "answer", "wrong", "contract", "stale", "format"
-]
+FindingKind = Literal["safety", "structure", "answer", "wrong", "contract", "stale", "format"]
 
 
 @dataclass(frozen=True)
@@ -143,9 +137,7 @@ class Source(StrictModel):
     @classmethod
     def timezone_required(cls, value: datetime) -> datetime:
         if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError(
-                "accessed_at has no time zone. Fix: add an offset such as +00:00"
-            )
+            raise ValueError("accessed_at has no time zone. Fix: add an offset such as +00:00")
         return value
 
 
@@ -211,8 +203,7 @@ class Calculation(StrictModel):
                 )
         elif self.denominator is not None:
             raise ValueError(
-                f"calculation {self.id}: denominator applies only to ratio. "
-                "Fix: remove denominator"
+                f"calculation {self.id}: denominator applies only to ratio. Fix: remove denominator"
             )
         if len({item.unit for item in self.inputs}) != 1:
             raise ValueError(
@@ -222,8 +213,7 @@ class Calculation(StrictModel):
         expected_unit = "ratio" if self.operation == "ratio" else self.inputs[0].unit
         if self.unit != expected_unit:
             raise ValueError(
-                f"calculation {self.id}: unit is {self.unit!r}. "
-                f"Fix: set unit to {expected_unit!r}"
+                f"calculation {self.id}: unit is {self.unit!r}. Fix: set unit to {expected_unit!r}"
             )
         return self
 
@@ -254,9 +244,7 @@ class Claim(StrictModel):
                 f"claim {self.id}: report_marker is {self.report_marker}. "
                 f"Fix: set report_marker to [{self.id}]"
             )
-        if (
-            self.kind == "causal" or self.status == "inconclusive"
-        ) and not self.limitations:
+        if (self.kind == "causal" or self.status == "inconclusive") and not self.limitations:
             raise ValueError(
                 f"claim {self.id} is {self.kind} and {self.status} with no limitations. "
                 "Fix: add at least one limitation"
@@ -333,9 +321,7 @@ def _reference_problems(evidence: Evidence) -> list[str]:
             if missing not in source_ids
         )
         problems.extend(
-            _unknown_reference(
-                f"claim {claim.id} cites", "calculation", missing, calculation_ids
-            )
+            _unknown_reference(f"claim {claim.id} cites", "calculation", missing, calculation_ids)
             for missing in claim.calculation_ids
             if missing not in calculation_ids
         )
@@ -425,7 +411,7 @@ def declared_query_ids(case_path: Path) -> frozenset[str]:
         return frozenset()
     try:
         return ReadOnlySql.parse(read_text(path)).query_ids
-    except (OSError, UnicodeError, UnsafeSqlError):
+    except OSError, UnicodeError, UnsafeSqlError:
         return frozenset()
 
 
@@ -513,14 +499,10 @@ def _read_json(case_path: Path, name: str) -> object:
             )
         ) from exc
     except RecursionError as exc:
-        raise ValueError(
-            problem("nested too deeply", "flatten the document", file=name)
-        ) from exc
+        raise ValueError(problem("nested too deeply", "flatten the document", file=name)) from exc
 
 
-def _load_artifact[ModelT: StrictModel](
-    case_path: Path, name: str, model: type[ModelT]
-) -> ModelT:
+def _load_artifact[ModelT: StrictModel](case_path: Path, name: str, model: type[ModelT]) -> ModelT:
     """Parse one manifest. Any failure is a ValueError with one fixable problem per line."""
     document = _read_json(case_path, name)
     try:
@@ -549,18 +531,13 @@ def _calculation_error(calculation: Calculation) -> str | None:
         calculation.tolerance,
     ]
     exponents = [
-        exponent
-        for value in values
-        if isinstance(exponent := value.as_tuple().exponent, int)
+        exponent for value in values if isinstance(exponent := value.as_tuple().exponent, int)
     ]
     try:
         with localcontext() as context:
             context.prec = max(
                 28,
-                max(value.adjusted() for value in values)
-                - min(exponents)
-                + len(values)
-                + 2,
+                max(value.adjusted() for value in values) - min(exponents) + len(values) + 2,
             )
             computed = calculation.computed_result()
             if not computed.is_finite():
@@ -606,8 +583,7 @@ def _source_findings(case_path: Path, evidence: Evidence) -> list[Finding]:
             findings.append(Finding("safety", str(exc)))
         except (OSError, ValueError) as exc:
             findings.extend(
-                Finding("contract", entry)
-                for entry in _problem_lines(exc, "evidence.json")
+                Finding("contract", entry) for entry in _problem_lines(exc, "evidence.json")
             )
         if source.query_id is not None and source.query_id not in query_ids:
             findings.append(
@@ -615,8 +591,7 @@ def _source_findings(case_path: Path, evidence: Evidence) -> list[Finding]:
                     "format",
                     problem(
                         f"source {source.id}: query_id {source.query_id} has no statement",
-                        f"add `-- query_id: {source.query_id}` above its statement in "
-                        "queries.sql",
+                        f"add `-- query_id: {source.query_id}` above its statement in queries.sql",
                         file="evidence.json",
                     ),
                 )
@@ -704,10 +679,7 @@ def _review_findings(case_path: Path, *, strict_completion: bool) -> list[Findin
     except (OSError, UnicodeError, ValueError) as exc:
         return [
             *findings,
-            *(
-                Finding("contract", entry)
-                for entry in _problem_lines(exc, "evidence.json")
-            ),
+            *(Finding("contract", entry) for entry in _problem_lines(exc, "evidence.json")),
         ]
     if set(review.reviewed_hashes) != set(current_hashes):
         findings.append(
@@ -740,17 +712,14 @@ def _problem_lines(exc: Exception, name: str) -> list[str]:
     text = str(exc)
     if ". Fix: " not in text:
         return [problem(text, "restore a readable file", file=name)]
-    return [
-        line if line.startswith(name) else f"{name}: {line}"
-        for line in text.split("\n")
-    ]
+    return [line if line.startswith(name) else f"{name}: {line}" for line in text.split("\n")]
 
 
 def _unsafe_artifact_findings(case_path: Path) -> list[Finding]:
     """Check artifact paths in a manifest the schema rejected, because that stays hard."""
     try:
         document = as_table(_read_json(case_path, "evidence.json"))
-    except (OSError, UnicodeError, ValueError):
+    except OSError, UnicodeError, ValueError:
         return []
     sources = document.get("sources")
     entries = cast("list[object]", sources) if isinstance(sources, list) else []
@@ -762,14 +731,12 @@ def _unsafe_artifact_findings(case_path: Path) -> list[Finding]:
                 _case_file(case_path, artifact)
             except UnsafeArtifactPathError as exc:
                 findings.append(Finding("safety", str(exc)))
-            except (OSError, ValueError):
+            except OSError, ValueError:
                 continue
     return findings
 
 
-def evidence_findings(
-    case_path: Path, *, strict_completion: bool = False
-) -> list[Finding]:
+def evidence_findings(case_path: Path, *, strict_completion: bool = False) -> list[Finding]:
     """Check evidence integrity and arithmetic, not the truth of prose claims."""
     if not evidence_path(case_path).exists():
         return (
@@ -794,10 +761,7 @@ def evidence_findings(
     except (OSError, UnicodeError, ValueError) as exc:
         return [
             *_unsafe_artifact_findings(case_path),
-            *(
-                Finding("contract", entry)
-                for entry in _problem_lines(exc, "evidence.json")
-            ),
+            *(Finding("contract", entry) for entry in _problem_lines(exc, "evidence.json")),
         ]
 
     findings = _source_findings(case_path, evidence)
@@ -806,9 +770,7 @@ def evidence_findings(
         for calculation in evidence.calculations
         if (error := _calculation_error(calculation)) is not None
     )
-    findings.extend(
-        _marker_findings(case_path, evidence, strict_completion=strict_completion)
-    )
+    findings.extend(_marker_findings(case_path, evidence, strict_completion=strict_completion))
     if strict_completion and (not evidence.sources or not evidence.claims):
         findings.append(
             Finding(
@@ -827,8 +789,7 @@ def evidence_findings(
                 "format",
                 problem(
                     f"coverage for {item.family} is still the scaffold text",
-                    f"record whether {item.family} was used, unavailable, or not needed, "
-                    "and why",
+                    f"record whether {item.family} was used, unavailable, or not needed, and why",
                     file="evidence.json",
                     line=line_of(read_text(evidence_path(case_path)), item.family),
                 ),

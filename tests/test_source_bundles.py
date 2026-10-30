@@ -99,12 +99,7 @@ def test_enable_generates_every_client_shape_from_one_definition(repo):
     assert _cursor(repo)["foo"] == {"url": "https://foo.example/mcp"}
     assert _codex(repo)["foo"]["url"] == "https://foo.example/mcp"
     assert _codex(repo)["foo"]["enabled"] is True
-    assert (
-        set(_claude(repo))
-        == set(_cursor(repo))
-        == set(_codex(repo))
-        == {"existing", "foo"}
-    )
+    assert set(_claude(repo)) == set(_cursor(repo)) == set(_codex(repo)) == {"existing", "foo"}
 
 
 def test_enable_writes_deny_lists_for_known_write_tools(repo):
@@ -131,9 +126,7 @@ def test_deny_lists_keep_entries_this_tool_does_not_own(repo):
 def test_setup_denies_every_bundles_connector_writes_in_shared_settings(repo):
     write_bundle(repo, "foo", SPEC, SERVER, connectors=[{"name": "Foo"}])
     native = {**SPEC, "display_name": "Mail", "transport": "native"}
-    write_bundle(
-        repo, "mail", native, connectors=[{"name": "Mail", "write_tools": ["send"]}]
-    )
+    write_bundle(repo, "mail", native, connectors=[{"name": "Mail", "write_tools": ["send"]}])
     shared = repo / ".claude" / "settings.json"
     shared.parent.mkdir()
     shared.write_text('{"model": "x", "permissions": {"deny": ["Read(./.env)"]}}')
@@ -279,9 +272,7 @@ def test_rewiring_keeps_user_values_and_restores_only_what_is_missing(repo):
         (".codex/config.toml", "disabled_tools", [3], "disabled_tools[0]"),
     ],
 )
-def test_setup_rejects_malformed_server_fields_without_writes(
-    repo, path, field, value, location
-):
+def test_setup_rejects_malformed_server_fields_without_writes(repo, path, field, value, location):
     sb.enable_bundle(repo, "foo")
     config = repo / path
     if config.suffix == ".toml":
@@ -330,9 +321,7 @@ def test_setup_adds_a_write_tool_a_wired_bundle_gained(repo):
 def test_doctor_message_is_true_when_setup_restores_codex_tools(repo):
     sb.enable_bundle(repo, "foo")
     codex = repo / ".codex" / "config.toml"
-    codex.write_text(
-        codex.read_text().replace('disabled_tools = ["delete_thing"]\n', "")
-    )
+    codex.write_text(codex.read_text().replace('disabled_tools = ["delete_thing"]\n', ""))
     assert any("run `research setup`" in c.message for c in run_doctor(repo))
 
     setup_repo(repo)
@@ -528,9 +517,7 @@ def test_goals_flag_is_written_even_for_an_mcpless_bundle(tmp_path) -> None:
 
 
 def _consumer(tmp_path, settings=""):
-    (tmp_path / "pyproject.toml").write_text(
-        f"[tool.fact-finder]\n{settings}", encoding="utf-8"
-    )
+    (tmp_path / "pyproject.toml").write_text(f"[tool.fact-finder]\n{settings}", encoding="utf-8")
     return tmp_path
 
 
@@ -553,9 +540,7 @@ def test_a_scaffold_cannot_be_enabled_until_it_is_filled(tmp_path):
     sb.scaffold_bundle(repo, "zendesk")
     path = repo / "examples" / "sources" / "zendesk.toml"
 
-    with pytest.raises(
-        SourceConfigError, match=r"zendesk\.toml:\d+: still marked TODO"
-    ):
+    with pytest.raises(SourceConfigError, match=r"zendesk\.toml:\d+: still marked TODO"):
         sb.enable_bundle(repo, "zendesk")
     assert not (repo / "config" / "sources.json").exists()
 
@@ -587,9 +572,7 @@ def test_a_consumer_bundle_overrides_a_packaged_one(tmp_path):
     repo = _consumer(tmp_path, 'sources_dir = "our-sources"\n')
     write_bundle(repo, "github", {**SPEC, "plan_line": "Ours."})
     (repo / "our-sources").mkdir()
-    (repo / "examples" / "sources" / "github.toml").rename(
-        repo / "our-sources" / "github.toml"
-    )
+    (repo / "examples" / "sources" / "github.toml").rename(repo / "our-sources" / "github.toml")
 
     assert sb.load_bundle(repo, "github").spec.plan_line == "Ours."
 
@@ -670,9 +653,7 @@ def test_a_rule_already_in_shared_settings_is_not_added_or_removed(repo):
     assert _deny(repo, ".claude/settings.json") == ["mcp__foo__delete_thing"]
 
 
-def test_the_scaffold_comment_prints_a_lint_command_that_works(
-    tmp_path, monkeypatch, capsys
-):
+def test_the_scaffold_comment_prints_a_lint_command_that_works(tmp_path, monkeypatch, capsys):
     repo = _consumer(tmp_path)
     monkeypatch.chdir(repo)
     sb.scaffold_bundle(repo, "zendesk")
@@ -821,16 +802,12 @@ def test_a_deny_rule_stays_while_its_server_remains(repo):
     (repo / ".mcp.json").write_text(
         json.dumps({"mcpServers": {"foo": {"type": "http", "url": "mine"}}})
     )
-    (repo / ".cursor" / "mcp.json").write_text(
-        json.dumps({"mcpServers": {"foo": {"url": "x"}}})
-    )
+    (repo / ".cursor" / "mcp.json").write_text(json.dumps({"mcpServers": {"foo": {"url": "x"}}}))
     (repo / ".claude").mkdir()
     (repo / ".claude" / "settings.local.json").write_text(
         json.dumps({"permissions": {"deny": [claude_rule]}})
     )
-    (repo / ".cursor" / "cli.json").write_text(
-        json.dumps({"permissions": {"deny": [cursor_rule]}})
-    )
+    (repo / ".cursor" / "cli.json").write_text(json.dumps({"permissions": {"deny": [cursor_rule]}}))
     configs = cc.ClientConfigs.read(repo)
 
     configs.unwire(
@@ -941,9 +918,7 @@ def test_a_differing_entry_stays_and_setup_finishes_the_rest(repo, entry):
     assert len(problems) == 1
     assert ".codex/config.toml" in problems[0]
     assert codex.read_text().startswith(committed)
-    assert "disabled_tools" not in _codex(repo)["foo"] or entry.startswith(
-        'url = "https://mine'
-    )
+    assert "disabled_tools" not in _codex(repo)["foo"] or entry.startswith('url = "https://mine')
     assert set(_claude(repo)) == {"foo", "bar"}
     assert set(_cursor(repo)) == {"foo", "bar"}
     assert "bar" in _codex(repo)

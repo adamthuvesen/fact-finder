@@ -49,9 +49,7 @@ def fingerprint() -> str:
     parts = [git("rev-parse", "HEAD"), git("diff", "HEAD")]
     for name in sorted(git("ls-files", "--others", "--exclude-standard").splitlines()):
         path = REPO / name
-        parts.append(
-            name + (path.read_text(errors="replace") if path.is_file() else "")
-        )
+        parts.append(name + (path.read_text(errors="replace") if path.is_file() else ""))
     return hashlib.sha256("".join(parts).encode()).hexdigest()
 
 
@@ -107,9 +105,7 @@ class Session:
         result = run([str(RESEARCH), *args], self.target, child_env(self.home))
         output = result.stdout + result.stderr
         with self.log.open("a") as log:
-            log.write(
-                f"$ research {' '.join(args)}\nexit {result.returncode}\n{output}\n"
-            )
+            log.write(f"$ research {' '.join(args)}\nexit {result.returncode}\n{output}\n")
         shown = f"`research {' '.join(args)}`"
         problems = [f"output lacks {s!r}" for s in contains if s not in output]
         problems += [f"output has {s!r}" for s in forbid if s in output]
@@ -153,28 +149,21 @@ def preflight(run_dir: Path) -> None:
             sys.exit(f"preflight: `{' '.join(argv)}` failed: {result.stderr.strip()}")
     wheel = next(wheel_dir.glob("*.whl"))
     python = str(VENV / "bin" / "python")
-    result = run(
-        ["uv", "pip", "install", "--quiet", "--python", python, str(wheel)], REPO
-    )
+    result = run(["uv", "pip", "install", "--quiet", "--python", python, str(wheel)], REPO)
     if result.returncode != 0:
         sys.exit(f"preflight: wheel install failed: {result.stderr.strip()}")
     env = child_env(SCRATCH)
-    probe = run(
-        [python, "-c", "import fact_finder; print(fact_finder.__file__)"], SCRATCH, env
-    )
+    probe = run([python, "-c", "import fact_finder; print(fact_finder.__file__)"], SCRATCH, env)
     location = Path(probe.stdout.strip())
     if not RESEARCH.exists() or not location.is_relative_to(VENV):
         sys.exit(
             f"preflight: the CLI does not come from the wheel venv ({location or probe.stderr.strip()})"
         )
     redacted = {
-        k: ("<redacted>" if any(m in k for m in SECRET_MARKERS) else v)
-        for k, v in env.items()
+        k: ("<redacted>" if any(m in k for m in SECRET_MARKERS) else v) for k, v in env.items()
     }
     (run_dir / "preflight.json").write_text(
-        json.dumps(
-            {"wheel": wheel.name, "package": str(location), "env": redacted}, indent=2
-        )
+        json.dumps({"wheel": wheel.name, "package": str(location), "env": redacted}, indent=2)
     )
 
 
@@ -207,16 +196,13 @@ def control(run_dir: Path) -> dict[str, object]:
     lorem(case)
     session.expect(["validate", case.name, "--strict"], 0, "cannot be proved by a gate")
     if session.failures:
-        return result_row(
-            "control", started, [], "FAIL observed: " + "; ".join(session.failures)
-        )
+        return result_row("control", started, [], "FAIL observed: " + "; ".join(session.failures))
     return result_row("control", started, ["the wrong expectation passed"], "")
 
 
 def changed_drives() -> list[str]:
     main = (
-        git("for-each-ref", "--format=%(refname:short)", "refs/heads/main").strip()
-        or "origin/main"
+        git("for-each-ref", "--format=%(refname:short)", "refs/heads/main").strip() or "origin/main"
     )
     base = git("merge-base", "HEAD", main).strip()
     files = set(git("diff", "--name-only", base).splitlines())
@@ -263,9 +249,7 @@ def main(argv: list[str]) -> int:
     tripped = TRIPWIRE_LOG.read_text().strip() if TRIPWIRE_LOG.exists() else ""
     if tripped:
         detail = f"a stubbed tool ran: {tripped}"
-        results.append(
-            {"drive": "tripwire", "result": "FAIL", "seconds": 0, "detail": detail}
-        )
+        results.append({"drive": "tripwire", "result": "FAIL", "seconds": 0, "detail": detail})
     for row in results:
         print(f"{row['result']} {row['drive']} {row['seconds']}s {row['detail']}")
     summary = {

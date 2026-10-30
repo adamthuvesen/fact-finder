@@ -24,9 +24,7 @@ def _project_settings(pyproject_path: Path) -> dict[str, Any] | None:
         payload = tomllib.loads(read_text(pyproject_path))
     except tomllib.TOMLDecodeError as exc:
         raise ValueError(
-            problem(
-                f"not valid TOML: {exc}", "correct the syntax", file=str(pyproject_path)
-            )
+            problem(f"not valid TOML: {exc}", "correct the syntax", file=str(pyproject_path))
         ) from exc
     tool = as_table(payload.get("tool"))
     if OLD_PROJECT_NAME in tool and PROJECT_NAME not in tool:
