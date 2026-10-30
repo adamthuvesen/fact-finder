@@ -48,14 +48,14 @@ def _load_credentials() -> google.auth.credentials.Credentials:
     try:
         credentials = cast(
             "google.auth.credentials.Credentials",
-            google.auth.default(scopes=_SCOPES)[0],  # pyright: ignore[reportUnknownMemberType]
+            google.auth.default(scopes=_SCOPES)[0],
         )
     except google.auth.exceptions.DefaultCredentialsError as exc:
         raise GoogleAuthError(
             f"ADC credentials not found: {exc}\n\nRe-authenticate with:\n  {_RE_AUTH_COMMAND}"
         ) from exc
     try:
-        credentials.refresh(google.auth.transport.requests.Request())  # pyright: ignore[reportUnknownMemberType]
+        credentials.refresh(google.auth.transport.requests.Request())
     except google.auth.exceptions.RefreshError as exc:
         raise GoogleAuthError(
             f"Token refresh failed: {exc}\n\nRe-authenticate with:\n  {_RE_AUTH_COMMAND}"

@@ -69,8 +69,15 @@ def run(
     argv: list[str], cwd: Path, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
     """Run in a new process group. Kill the group on timeout, or on exit through cleanup()."""
-    pipes = {"stdout": subprocess.PIPE, "stderr": subprocess.PIPE, "text": True}
-    proc = subprocess.Popen(argv, cwd=cwd, env=env, start_new_session=True, **pipes)
+    proc = subprocess.Popen(
+        argv,
+        cwd=cwd,
+        env=env,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
     LIVE_GROUPS.add(proc.pid)
     try:
         out, err = proc.communicate(timeout=COMMAND_TIMEOUT)

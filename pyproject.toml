@@ -130,9 +130,11 @@ ignore = [
 [tool.basedpyright]
 pythonVersion = "3.14"
 typeCheckingMode = "strict"
+enableTypeIgnoreComments = false
+reportUnnecessaryTypeIgnoreComment = "error"
 venvPath = "."
 venv = ".venv"
-include = [".", ".agents/skills/verify-fact-finder/verify"]
+include = ["."]
 failOnWarnings = false
 exclude = ["**/.venv", "**/__pycache__", "research", "evals", "examples", "vulture_whitelist.py"]
 reportUnknownMemberType = false

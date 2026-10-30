@@ -62,3 +62,4 @@ Each "Enforced by" cell cites `path::name` (a function or class the file defines
 | Layers hold, and models forbid unknown fields | `make boundaries`, `make lint` (ruff TID251 bans pydantic.BaseModel) | 2026-11-04 |
 | Instruction text stays under its limit, and doc links resolve | `tests/test_docs_contract.py::test_all_instruction_text_stays_under_the_limit`, `tests/test_docs_contract.py::test_relative_doc_links_resolve` | 2026-11-04 |
 | `make verify` can fail: its control asserts a wrong result and must observe FAIL | `.agents/skills/verify-fact-finder/verify::control` | 2026-11-06 |
+| No file downgrades strict type checking with a `# pyright:` mode comment | `tests/test_strict_mode.py::test_no_file_downgrades_type_checking_mode` | 2026-11-07 |

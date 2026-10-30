@@ -30,6 +30,7 @@ lint:
 
 types:
 	$(RUN) basedpyright
+	$(RUN) basedpyright --project .agents/skills/verify-fact-finder
 
 deps:
 	$(RUN) deptry .
