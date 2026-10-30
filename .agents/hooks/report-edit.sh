@@ -1,1 +1,1 @@
-../../src/agentic_research_loop/hooks/report-edit.sh
+../../src/fact_finder/hooks/report-edit.sh

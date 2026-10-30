@@ -2,7 +2,7 @@
 
 Enabling a bundle generates each client config and deny list, and doctor checks them.
 
-Source: src/agentic_research_loop/source_bundles.py, src/agentic_research_loop/doctor.py
+Source: src/fact_finder/source_bundles.py, src/fact_finder/doctor.py
 Inventory-id: source, doctor
 
 ## Sub-features

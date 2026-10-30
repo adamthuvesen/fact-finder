@@ -5,8 +5,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agentic_research_loop.cli import main
-from agentic_research_loop.google_api import GoogleApiError
+from fact_finder.cli import main
+from fact_finder.google_api import GoogleApiError
 
 _GSC_RESPONSE = {
     "rows": [
@@ -29,9 +29,7 @@ def _site(monkeypatch):
 
 class TestGscCli:
     def test_basic_gsc_query(self, capsys):
-        with patch(
-            "agentic_research_loop.cli.gsc_query", return_value=_GSC_RESPONSE
-        ) as mock_gsc:
+        with patch("fact_finder.cli.gsc_query", return_value=_GSC_RESPONSE) as mock_gsc:
             exit_code = main(
                 [
                     "gsc",
@@ -57,9 +55,7 @@ class TestGscCli:
         assert "rows" in output
 
     def test_gsc_with_pagination(self):
-        with patch(
-            "agentic_research_loop.cli.gsc_query", return_value=_GSC_RESPONSE
-        ) as mock_gsc:
+        with patch("fact_finder.cli.gsc_query", return_value=_GSC_RESPONSE) as mock_gsc:
             exit_code = main(
                 [
                     "gsc",
@@ -167,14 +163,12 @@ class TestGscCli:
 
     def test_site_can_come_from_the_project_table(self, tmp_path, monkeypatch):
         (tmp_path / "pyproject.toml").write_text(
-            '[tool.agentic-research-loop]\ngsc_site = "sc-domain:consumer.example"\n',
+            '[tool.fact-finder]\ngsc_site = "sc-domain:consumer.example"\n',
             encoding="utf-8",
         )
         monkeypatch.chdir(tmp_path)
         monkeypatch.delenv("GSC_SITE")
-        with patch(
-            "agentic_research_loop.cli.gsc_query", return_value=_GSC_RESPONSE
-        ) as mock_gsc:
+        with patch("fact_finder.cli.gsc_query", return_value=_GSC_RESPONSE) as mock_gsc:
             main(
                 [
                     "gsc",
@@ -190,9 +184,7 @@ class TestGscCli:
         assert mock_gsc.call_args.kwargs["site"] == "sc-domain:consumer.example"
 
     def test_ga4_passes_the_configured_property(self, capsys):
-        with patch(
-            "agentic_research_loop.cli.ga4_report", return_value={"rows": []}
-        ) as mock_ga4:
+        with patch("fact_finder.cli.ga4_report", return_value={"rows": []}) as mock_ga4:
             exit_code = main(
                 [
                     "ga4",
@@ -227,7 +219,7 @@ class TestGscCli:
 
     def test_gsc_api_errors_are_printed_without_traceback(self, capsys):
         with patch(
-            "agentic_research_loop.cli.gsc_query",
+            "fact_finder.cli.gsc_query",
             side_effect=GoogleApiError("Google API request failed (400): bad request"),
         ):
             exit_code = main(

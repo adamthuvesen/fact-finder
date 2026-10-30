@@ -13,10 +13,8 @@ SKILLS_DIR = (".agents", "skills")
 
 
 def _is_engine_link(link: Path, kind: str) -> bool:
-    """Recognize a link to an older install of this package, such as a rebuilt venv."""
-    return (
-        link.readlink().as_posix().endswith(f"agentic_research_loop/{kind}/{link.name}")
-    )
+    """Recognize a link to another install of this package, such as a rebuilt venv."""
+    return link.readlink().as_posix().endswith(f"fact_finder/{kind}/{link.name}")
 
 
 def _link_packaged(repo_root: Path, kind: str) -> list[str]:

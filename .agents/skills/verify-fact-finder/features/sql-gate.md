@@ -2,7 +2,7 @@
 
 Validation rejects write SQL hidden by dialect differences and accepts lookalike reads.
 
-Source: src/agentic_research_loop/readonly_sql.py
+Source: src/fact_finder/readonly_sql.py
 Inventory-id: validate
 
 ## Sub-features

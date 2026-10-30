@@ -1,6 +1,6 @@
 # AGENTS.md
 
-`agentic-research-loop` is a research kit for bounded investigations run inside a native
+`fact-finder` is a research kit for bounded investigations run inside a native
 agent goal. This file holds project facts. It is short because checks enforce the rest.
 
 - Next step on any case: `uv run research next [case]`
@@ -11,8 +11,8 @@ agent goal. This file holds project facts. It is short because checks enforce th
 
 If a doc disagrees with code, fix the doc in the same change. `make quick` checks what changed in about
 two seconds, and the edit hook runs the same checks. `make check` is the gate. Prove
-user-facing changes with the `verify-agentic-research-loop` skill at
-`.agents/skills/verify-agentic-research-loop/`.
+user-facing changes with the `verify-fact-finder` skill at
+`.agents/skills/verify-fact-finder/`.
 
 ## Stop and ask
 

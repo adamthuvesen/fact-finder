@@ -3,7 +3,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentic-research-loop"
+name = "fact-finder"
 version = "0.1.0"
 description = "Research kit for bounded investigations run inside a native agent goal"
 readme = "README.md"
@@ -46,13 +46,13 @@ dev = [
 ]
 
 [project.scripts]
-research = "agentic_research_loop.cli:main"
+research = "fact_finder.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agentic_research_loop"]
+packages = ["src/fact_finder"]
 
 [tool.ruff]
 extend-exclude = ["vulture_whitelist.py"]
@@ -116,12 +116,12 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 # The CLI's job is to print.
-"src/agentic_research_loop/cli.py" = ["T201"]
+"src/fact_finder/cli.py" = ["T201"]
 # The verify driver runs the real CLI and prints its evidence path.
 ".agents/skills/*/verify" = ["S603", "S607", "TID251", "T20", "FBT"]
 # This script probes installed clients on purpose, with fixed arguments.
 "scripts/check_agent_setup.py" = ["S603", "TID251"]
-"src/agentic_research_loop/strict_model.py" = ["TID251"]
+"src/fact_finder/strict_model.py" = ["TID251"]
 "tests/**" = ["S101", "S603", "S607", "ANN", "ARG", "PLC0415", "SLF001", "FBT", "T20", "TRY", "PTH123", "S105", "S108", "TID251"]
 
 [tool.basedpyright]
@@ -141,10 +141,10 @@ ignore_decorators = ["@field_validator", "@model_validator"]
 
 [tool.deptry]
 extend_exclude = ["experiments", "examples", "evals", "bench"]
-known_first_party = ["agentic_research_loop"]
+known_first_party = ["fact_finder"]
 
 [tool.coverage.run]
-source = ["agentic_research_loop"]
+source = ["fact_finder"]
 
 [tool.coverage.report]
 precision = 2
@@ -154,16 +154,16 @@ precision = 2
 # XDG_DATA_HOME, because uv keeps its managed Python there. This value accepts the existing `.venv`.
 python-preference = "managed"
 
-[tool.agentic-research-loop]
-sources_dir = "src/agentic_research_loop/bundles"
+[tool.fact-finder]
+sources_dir = "src/fact_finder/bundles"
 
 [tool.importlinter]
-root_package = "agentic_research_loop"
+root_package = "fact_finder"
 
 [[tool.importlinter.contracts]]
 name = "cli above domain above I/O; nothing imports cli. Fix: move the import or the code down a layer; the layers are listed in pyproject.toml"
 type = "layers"
-containers = ["agentic_research_loop"]
+containers = ["fact_finder"]
 exhaustive = true
 layers = [
     "__main__",

@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from markdown_it import MarkdownIt
 
-from agentic_research_loop.source_bundles import available_bundles, load_bundle
+from fact_finder.source_bundles import available_bundles, load_bundle
 
 ROOT = Path(__file__).resolve().parents[1]
 # About 10% above the 994 lines counted on 2026-11-04. Lower it when text goes away.

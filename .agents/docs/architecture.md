@@ -1,6 +1,6 @@
 # Architecture
 
-`agentic-research-loop` is a research kit, not an agent runtime. The client owns execution. The repo
+`fact-finder` is a research kit, not an agent runtime. The client owns execution. The repo
 owns everything around it.
 
 `pyproject.toml` lists the module layers, and `make boundaries` enforces them. Skills, bundles, hooks,

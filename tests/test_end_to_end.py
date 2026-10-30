@@ -7,7 +7,7 @@ from pathlib import Path
 
 from support.cases import fill_case, fill_with_lorem_ipsum, review_document
 
-from agentic_research_loop.cli import main
+from fact_finder.cli import main
 
 
 def test_case_lifecycle(repo_root: Path, monkeypatch, capsys) -> None:

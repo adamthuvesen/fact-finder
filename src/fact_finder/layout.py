@@ -9,7 +9,9 @@ from typing import Any, cast
 from .feedback import problem
 from .io import read_text
 
-PROJECT_NAME = "agentic-research-loop"
+PROJECT_NAME = "fact-finder"
+# The engine's earlier names. A consumer set up before the rename can still hold them.
+OLD_PROJECT_NAME = "agentic-research-loop"
 
 
 def as_table(value: object) -> dict[str, Any]:
@@ -27,13 +29,21 @@ def _project_settings(pyproject_path: Path) -> dict[str, Any] | None:
             )
         ) from exc
     tool = as_table(payload.get("tool"))
+    if OLD_PROJECT_NAME in tool and PROJECT_NAME not in tool:
+        raise ValueError(
+            problem(
+                f"[tool.{OLD_PROJECT_NAME}] uses the engine's old name",
+                f"rename it to [tool.{PROJECT_NAME}]",
+                file=str(pyproject_path),
+            )
+        )
     if PROJECT_NAME in tool:
         return as_table(tool[PROJECT_NAME])
     return {} if as_table(payload.get("project")).get("name") == PROJECT_NAME else None
 
 
 def find_repo_root(start: Path | None = None) -> Path:
-    """Find this repo, or a consumer repo that declares `[tool.agentic-research-loop]`."""
+    """Find this repo, or a consumer repo that declares `[tool.fact-finder]`."""
     current = (start or Path.cwd()).resolve()
     for candidate in (current, *current.parents):
         pyproject_path = candidate / "pyproject.toml"
@@ -55,7 +65,7 @@ def _setting(repo_root: Path, name: str) -> object:
 
 
 def project_setting(repo_root: Path, name: str) -> str | None:
-    """Read one string value from `[tool.agentic-research-loop]`."""
+    """Read one string value from `[tool.fact-finder]`."""
     value = _setting(repo_root, name)
     if value is None or isinstance(value, str):
         return value
@@ -69,7 +79,7 @@ def project_setting(repo_root: Path, name: str) -> str | None:
 
 
 def project_list_setting(repo_root: Path, name: str) -> list[str]:
-    """Read one list of strings from `[tool.agentic-research-loop]`."""
+    """Read one list of strings from `[tool.fact-finder]`."""
     value = _setting(repo_root, name)
     if value is None:
         return []

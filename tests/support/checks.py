@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentic_research_loop.evidence import evidence_findings
-from agentic_research_loop.validation import assess_case
+from fact_finder.evidence import evidence_findings
+from fact_finder.validation import assess_case
 
 
 def validate_case(case_path: Path, *, strict_completion: bool = False) -> list[str]:

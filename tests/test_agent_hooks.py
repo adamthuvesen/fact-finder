@@ -10,16 +10,16 @@ from pathlib import Path
 import pytest
 from support.cases import fill_case
 
-from agentic_research_loop.agent_hooks import (
+from fact_finder.agent_hooks import (
     CLIENT_HOOKS,
     HOOK_SCRIPT,
     edited_files,
     hook_report,
     install_hooks,
 )
-from agentic_research_loop.cli import main
-from agentic_research_loop.repo_setup import PACKAGE, setup_repo
-from agentic_research_loop.sources import SourceConfigError
+from fact_finder.cli import main
+from fact_finder.repo_setup import PACKAGE, setup_repo
+from fact_finder.sources import SourceConfigError
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = PACKAGE / "hooks" / "report-edit.sh"

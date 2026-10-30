@@ -2,7 +2,7 @@
 
 A person gets a labelled exploratory answer with very little ceremony. Write SQL still fails, and no flag overrides it.
 
-Source: src/agentic_research_loop/validation.py
+Source: src/fact_finder/validation.py
 Inventory-id: init, validate
 
 ## Sub-features

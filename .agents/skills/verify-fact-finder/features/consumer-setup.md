@@ -2,7 +2,7 @@
 
 A repo that only pins the wheel gets skills and bundles with one command.
 
-Source: src/agentic_research_loop/repo_setup.py
+Source: src/fact_finder/repo_setup.py
 Inventory-id: setup, source
 
 ## Sub-features
@@ -12,7 +12,7 @@ Inventory-id: setup, source
 
 ## How to get to it (user POV)
 
-- Run `research setup` in a repo with a `[tool.agentic-research-loop]` table.
+- Run `research setup` in a repo with a `[tool.fact-finder]` table.
 
 ## Driving it with verify
 

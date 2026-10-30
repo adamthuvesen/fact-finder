@@ -422,7 +422,7 @@ def _required_setting(repo_root: Path, *, env: str, setting: str, example: str) 
         raise GoogleApiError(
             problem(
                 f"{env} is not set",
-                f"set it, or set {setting} under [tool.agentic-research-loop] in "
+                f"set it, or set {setting} under [tool.fact-finder] in "
                 f"pyproject.toml. Example: {example}",
             )
         )

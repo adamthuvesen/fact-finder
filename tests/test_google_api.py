@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import google.auth.exceptions
 import pytest
 
-from agentic_research_loop.google_api import (
+from fact_finder.google_api import (
     GoogleApiError,
     GoogleAuthError,
     ga4_report,
@@ -47,7 +47,7 @@ def _fake_credentials():
     creds = MagicMock()
     creds.token = "fake-token-123"
     with patch(
-        "agentic_research_loop.google_api.google.auth.default",
+        "fact_finder.google_api.google.auth.default",
         return_value=(creds, "proj"),
     ):
         yield creds
@@ -118,7 +118,7 @@ class TestAuthErrors:
     def test_missing_credentials_raises_google_auth_error(self):
         with (
             patch(
-                "agentic_research_loop.google_api.google.auth.default",
+                "fact_finder.google_api.google.auth.default",
                 side_effect=google.auth.exceptions.DefaultCredentialsError("not found"),
             ),
             pytest.raises(GoogleAuthError, match="ADC credentials not found"),

@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agentic_research_loop.cli import main
-from agentic_research_loop.sources import (
+from fact_finder.cli import main
+from fact_finder.sources import (
     BUILTIN_SOURCES,
     ServerDefinition,
     SourceConfigError,

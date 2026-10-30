@@ -2,7 +2,7 @@
 
 A new source, the next step, and a bad edit each give one concrete fix.
 
-Source: src/agentic_research_loop/next_step.py, src/agentic_research_loop/lint.py, src/agentic_research_loop/agent_hooks.py
+Source: src/fact_finder/next_step.py, src/fact_finder/lint.py, src/fact_finder/agent_hooks.py
 Inventory-id: next, lint, hook, source
 
 ## Sub-features

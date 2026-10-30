@@ -58,8 +58,8 @@ def _entry(client: Client, hook: ClientHook) -> JsonObject:
     return {"matcher": hook.matcher, "hooks": [{"type": "command", "command": command}]}
 
 
-def _with_hook(document: JsonObject, client: Client, hook: ClientHook) -> bool:
-    """Add the client's entry unless it is already there. Report whether it changed."""
+def _with_hook(document: JsonObject, client: Client, hook: ClientHook) -> str | None:
+    """Bring the client's entry up to date, and say what changed, if anything."""
     if client == "cursor":
         document.setdefault("version", 1)
     hooks = document.setdefault("hooks", {})
@@ -74,9 +74,9 @@ def _with_hook(document: JsonObject, client: Client, hook: ClientHook) -> bool:
         )
     entry = _entry(client, hook)
     if entry in entries:
-        return False
+        return None
     entries.append(entry)
-    return True
+    return f"added the edit hook to {hook.file}"
 
 
 def install_hooks(repo_root: Path) -> list[str]:
@@ -85,9 +85,10 @@ def install_hooks(repo_root: Path) -> list[str]:
     for client, hook in CLIENT_HOOKS.items():
         path = repo_root / hook.file
         document = read_json_object(path) if path.exists() else {}
-        if _with_hook(document, client, hook):
+        action = _with_hook(document, client, hook)
+        if action is not None:
             documents[path] = json.dumps(document, indent=2, ensure_ascii=False) + "\n"
-            actions.append(f"added the edit hook to {hook.file}")
+            actions.append(action)
     write_documents(documents)
     return actions
 

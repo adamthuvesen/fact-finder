@@ -2,7 +2,7 @@
 
 In a decision case, a filler case and a reviewer named after a client both fail strict validation.
 
-Source: src/agentic_research_loop/evidence.py, src/agentic_research_loop/validation.py
+Source: src/fact_finder/evidence.py, src/fact_finder/validation.py
 Inventory-id: validate
 
 ## Sub-features

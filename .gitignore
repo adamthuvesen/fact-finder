@@ -30,7 +30,7 @@ config/sources.json
 # Copied from the bundle by `research source enable snowflake`
 config/snowflake-mcp-tools.yaml
 
-# Verification runs (.agents/skills/verify-agentic-research-loop)
+# Verification runs (.agents/skills/verify-fact-finder)
 .verify/
 
 # Agent docs — only allow curated paths under .agents/docs/

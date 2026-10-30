@@ -2,7 +2,7 @@
 
 A bundle is one `<name>.toml`: what the source is, how it stays read-only, its server, and
 its setup steps. Bundles ship inside this package. A repo adds or overrides its own in
-`sources_dir` under `[tool.agentic-research-loop]`, by default `examples/sources/`.
+`sources_dir` under `[tool.fact-finder]`, by default `examples/sources/`.
 
 `config/sources.json` says which sources a repo wants, and may be shared. `.research/wiring.json`
 is local, and says what research added to this machine's client files. `reconcile_clients` is the
@@ -20,7 +20,7 @@ from typing import get_args
 
 from pydantic import TypeAdapter, ValidationError
 
-from .client_configs import ClientConfigs, server_differences
+from .client_configs import ClientConfigs
 from .feedback import problem, validation_problems
 from .io import read_text, write_documents, write_text
 from .layout import project_setting
@@ -29,6 +29,7 @@ from .sources import (
     NAME_PATTERN,
     BundleFile,
     Category,
+    Connector,
     Mechanism,
     ServerDefinition,
     SourceConfigError,
@@ -55,6 +56,7 @@ class Bundle:
     spec: SourceSpec
     server: ServerDefinition | None
     setup: str
+    connectors: list[Connector]
 
 
 def repo_sources_dir(repo_root: Path) -> Path:
@@ -76,19 +78,11 @@ def _bundle_roots(repo_root: Path) -> list[Path]:
 
 
 def available_bundles(repo_root: Path) -> list[str]:
-    # An older three-file bundle stays listed, so loading it explains the conversion.
     return sorted(
         {
-            *(
-                entry.stem
-                for root in _bundle_roots(repo_root)
-                for entry in root.glob("*.toml")
-            ),
-            *(
-                entry.parent.name
-                for root in _bundle_roots(repo_root)
-                for entry in root.glob("*/source.json")
-            ),
+            entry.stem
+            for root in _bundle_roots(repo_root)
+            for entry in root.glob("*.toml")
         }
     )
 
@@ -99,15 +93,6 @@ def _bundle_path(repo_root: Path, name: str) -> Path:
     for root in _bundle_roots(repo_root):
         if (root / f"{name}.toml").is_file():
             return root / f"{name}.toml"
-        if (root / name / "source.json").is_file():
-            raise SourceConfigError(
-                problem(
-                    "this is an older three-file bundle",
-                    f"merge source.json, mcp.snippet.json, and SETUP.md into {name}.toml; "
-                    "`research source new` shows the shape",
-                    file=str(root / name / "source.json"),
-                )
-            )
     available = ", ".join(available_bundles(repo_root)) or "(none)"
     raise SourceConfigError(
         problem(
@@ -136,7 +121,26 @@ def load_bundle(repo_root: Path, name: str) -> Bundle:
         spec=document.source,
         server=document.server,
         setup=document.setup,
+        connectors=document.connectors,
     )
+
+
+def connector_deny_rules(repo_root: Path) -> dict[str, list[str]]:
+    """Return the claude.ai connector rules of every bundle, enabled or not, by bundle.
+
+    A person may connect a connector whatever sources a repo enables, so every bundle counts.
+    """
+    rules: dict[str, list[str]] = {}
+    for name in available_bundles(repo_root):
+        bundle = load_bundle(repo_root, name)
+        server_tools = bundle.server.write_tools if bundle.server else []
+        if bundle.connectors:
+            rules[name] = [
+                f"mcp__claude_ai_{connector.name}__{tool}"
+                for connector in bundle.connectors
+                for tool in connector.write_tools or server_tools
+            ]
+    return rules
 
 
 def unfilled_fields(path: Path) -> list[str]:
@@ -174,37 +178,11 @@ def _sources_document(repo_root: Path, document: SourcesFile) -> dict[Path, str]
     return {path: content} if path.exists() or document.sources else {}
 
 
-def _adopted_wiring(
-    repo_root: Path, document: SourcesFile, clients: ClientConfigs
-) -> dict[str, Wiring]:
-    """Read ownership an older install kept in `config/sources.json`.
-
-    That file may be shared, so it proves ownership only where the entry still matches its
-    bundle. Anything else stays a person's.
-    """
-    known = set(available_bundles(repo_root))
-    adopted: dict[str, Wiring] = {}
-    for name, wiring in document.wiring.items():
-        server = load_bundle(repo_root, name).server if name in known else None
-        if name not in document.sources or server is None:
-            continue
-        owned = [
-            client
-            for client in wiring.clients
-            if not (entry := clients.server_entry(client, wiring.server_name))
-            or not server_differences(entry, server)
-        ]
-        adopted[name] = wiring.model_copy(update={"clients": owned})
-    return adopted
-
-
-def owned_wiring(
-    repo_root: Path, document: SourcesFile, clients: ClientConfigs
-) -> dict[str, Wiring]:
+def owned_wiring(repo_root: Path) -> dict[str, Wiring]:
     """Return what research added to this machine's client files, by source."""
     path = repo_root / WIRING_FILE
     if not path.exists():
-        return _adopted_wiring(repo_root, document, clients)
+        return {}
     text = read_text(path)
     try:
         return _WIRING_FILE.validate_json(text)
@@ -255,7 +233,7 @@ def reconcile_clients(repo_root: Path, document: SourcesFile) -> list[str]:
     The returned actions name real changes, plus one problem for each such conflict.
     """
     clients = ClientConfigs.read(repo_root)
-    ledger = owned_wiring(repo_root, document, clients)
+    ledger = owned_wiring(repo_root)
     actions: list[str] = []
     if clients.goals_state() == "unset":
         clients.enable_codex_goals()
@@ -294,6 +272,13 @@ def reconcile_clients(repo_root: Path, document: SourcesFile) -> list[str]:
             conflict_problem(server_name, name, file) for file in result.conflict_files
         )
     actions.extend(f"copied {path.name} to config/" for path in support)
+    connector_rules = [
+        rule for rules in connector_deny_rules(repo_root).values() for rule in rules
+    ]
+    if added := clients.deny_in_shared_settings(connector_rules):
+        actions.append(
+            f"denied {len(added)} claude.ai connector write tools in .claude/settings.json"
+        )
     write_documents(
         {
             **_sources_document(repo_root, document),
@@ -444,6 +429,12 @@ detail = "{control_todo}"
 # [server]
 # server_name = "{name}"
 # url = "https://example.com/mcp/readonly"
+# write_tools = ["tool_that_writes"]
+
+# For each claude.ai connector to the same service, add one. `research setup` denies its
+# write tools in .claude/settings.json. Omit write_tools when they match [server].
+# [[connectors]]
+# name = "{name.replace("-", " ").title().replace(" ", "_")}"
 # write_tools = ["tool_that_writes"]
 ''',
     )

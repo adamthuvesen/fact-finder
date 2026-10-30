@@ -275,11 +275,7 @@ def drive_consumer_setup(drive: Any) -> None:
     drive.expect(["contract", "method"], 0, "# Research method")
     drive.expect(["contract", "evidence"], 0, "review-snapshot")
     drive.check(
-        any(
-            drive.target.parent.glob(
-                "venv/lib/*/site-packages/agentic_research_loop/py.typed"
-            )
-        ),
+        any(drive.target.parent.glob("venv/lib/*/site-packages/fact_finder/py.typed")),
         "the wheel has no py.typed",
     )
     for name in ("research-goal", "research-spec"):

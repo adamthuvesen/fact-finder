@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from support.cases import fill_case
 
-from agentic_research_loop import research, templates
-from agentic_research_loop.cli import main
-from agentic_research_loop.research import resolve_case_path
+from fact_finder import research, templates
+from fact_finder.cli import main
+from fact_finder.research import resolve_case_path
 
 CASE_FILES = (
     "brief.md",
@@ -380,7 +380,7 @@ def test_outside_a_project_is_a_clean_error(tmp_path, monkeypatch, capsys) -> No
     monkeypatch.chdir(tmp_path)
 
     assert main(["list"]) == 1
-    assert "[tool.agentic-research-loop]" in capsys.readouterr().err
+    assert "[tool.fact-finder]" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("command", ["list", "doctor", "setup"])
@@ -388,7 +388,7 @@ def test_consumer_repo_is_recognized_by_its_tool_table(
     tmp_path, monkeypatch, command
 ) -> None:
     (tmp_path / "pyproject.toml").write_text(
-        "[project]\nname = 'consumer'\n\n[tool.agentic-research-loop]\n",
+        "[project]\nname = 'consumer'\n\n[tool.fact-finder]\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -461,7 +461,7 @@ def test_deep_evidence_snapshot_is_a_clean_error(
 
 
 @pytest.mark.parametrize(
-    "text", ["tool = 1\n", "project = 1\n", "[tool]\nagentic-research-loop = 1\n"]
+    "text", ["tool = 1\n", "project = 1\n", "[tool]\nfact-finder = 1\n"]
 )
 def test_malformed_project_tables_are_not_a_traceback(
     tmp_path, monkeypatch, text
@@ -589,9 +589,7 @@ def test_rigour_flags_need_strict(repo_root, monkeypatch, capsys, flag) -> None:
 def _consumer_with_field(repo_root: Path, monkeypatch) -> None:
     monkeypatch.chdir(repo_root)
     with (repo_root / "pyproject.toml").open("a", encoding="utf-8") as handle:
-        handle.write(
-            '\n[tool.agentic-research-loop]\nrequired_brief_fields = ["Owner"]\n'
-        )
+        handle.write('\n[tool.fact-finder]\nrequired_brief_fields = ["Owner"]\n')
 
 
 def test_a_consumers_required_field_is_scaffolded_and_blocks(
@@ -629,9 +627,7 @@ def test_a_malformed_required_field_setting_is_a_clean_error(
 ) -> None:
     monkeypatch.chdir(repo_root)
     with (repo_root / "pyproject.toml").open("a", encoding="utf-8") as handle:
-        handle.write(
-            '\n[tool.agentic-research-loop]\nrequired_brief_fields = "Owner"\n'
-        )
+        handle.write('\n[tool.fact-finder]\nrequired_brief_fields = "Owner"\n')
 
     assert main(["init", "x", "--local-only"]) == 1
 
@@ -667,7 +663,7 @@ def test_a_bad_setting_names_its_key_and_fix(
 ) -> None:
     monkeypatch.chdir(repo_root)
     with (repo_root / "pyproject.toml").open("a", encoding="utf-8") as handle:
-        handle.write(f"\n[tool.agentic-research-loop]\n{setting}\n")
+        handle.write(f"\n[tool.fact-finder]\n{setting}\n")
     command = (
         [
             "gsc",
@@ -698,7 +694,7 @@ def test_from_spec_adds_a_consumers_required_field_and_keeps_a_supplied_one(
     monkeypatch.chdir(repo_root)
     with (repo_root / "pyproject.toml").open("a", encoding="utf-8") as handle:
         handle.write(
-            '\n[tool.agentic-research-loop]\nrequired_brief_fields = ["Owner", "Budget"]\n'
+            '\n[tool.fact-finder]\nrequired_brief_fields = ["Owner", "Budget"]\n'
         )
     spec = repo_root / "spec"
     spec.mkdir()

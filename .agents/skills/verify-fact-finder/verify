@@ -196,7 +196,7 @@ def launch() -> int:
     CONSUMER.mkdir()
     write_tripwire()
     (CONSUMER / "pyproject.toml").write_text(
-        "[project]\nname = 'consumer'\n\n[tool.agentic-research-loop]\n"
+        "[project]\nname = 'consumer'\n\n[tool.fact-finder]\n"
     )
     dist = STATE / "dist"
     subprocess.run(

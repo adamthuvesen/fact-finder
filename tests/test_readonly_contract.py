@@ -13,15 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from agentic_research_loop.doctor import allowlist_problem, control_problem
-from agentic_research_loop.source_bundles import (
+from fact_finder.doctor import allowlist_problem, control_problem
+from fact_finder.source_bundles import (
     PACKAGED_BUNDLES,
     Bundle,
     available_bundles,
     load_bundle,
     repo_sources_dir,
 )
-from agentic_research_loop.sources import CONFIG_CHECKED
+from fact_finder.sources import CONFIG_CHECKED
 
 ROOT = Path(__file__).resolve().parents[1]
 

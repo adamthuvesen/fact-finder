@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from support.cases import fill_case, write_review
 
-from agentic_research_loop.cli import main
+from fact_finder.cli import main
 
 
 def _init(repo_root: Path, *extra: str) -> Path:

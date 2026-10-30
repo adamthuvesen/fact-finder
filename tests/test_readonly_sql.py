@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentic_research_loop.readonly_sql import (
+from fact_finder.readonly_sql import (
     ReadOnlySql,
     UnsafeSqlError,
     locking_clause_is_the_problem,

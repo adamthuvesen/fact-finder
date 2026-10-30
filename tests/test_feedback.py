@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from support.cases import fill_case
 
-from agentic_research_loop.cli import main
+from fact_finder.cli import main
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -193,7 +193,7 @@ def test_ruff_bans_name_their_fix(source: str, fix: str) -> None:
             "check",
             "--quiet",
             "--stdin-filename",
-            "src/agentic_research_loop/new.py",
+            "src/fact_finder/new.py",
             "--select",
             "TID251",
             "-",

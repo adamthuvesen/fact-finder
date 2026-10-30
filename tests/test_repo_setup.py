@@ -4,15 +4,15 @@ import json
 import tomllib
 from pathlib import Path
 
-from agentic_research_loop.cli import main
-from agentic_research_loop.repo_setup import PACKAGE, link_skills
+from fact_finder.cli import main
+from fact_finder.repo_setup import PACKAGE, link_skills
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _consumer(tmp_path: Path, monkeypatch) -> Path:
     (tmp_path / "pyproject.toml").write_text(
-        "[project]\nname = 'consumer'\n\n[tool.agentic-research-loop]\n",
+        "[project]\nname = 'consumer'\n\n[tool.fact-finder]\n",
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
@@ -113,8 +113,21 @@ def test_setup_repoints_a_stale_engine_link(tmp_path, monkeypatch) -> None:
     repo = _consumer(tmp_path, monkeypatch)
     link = repo / ".agents" / "skills" / "research-goal"
     link.parent.mkdir(parents=True)
-    link.symlink_to("../../.venv-old/agentic_research_loop/skills/research-goal")
+    link.symlink_to("../../.venv-old/fact_finder/skills/research-goal")
 
     link_skills(repo)
 
     assert link.resolve() == (PACKAGE / "skills" / "research-goal").resolve()
+
+
+def test_the_old_settings_table_names_its_fix(tmp_path, monkeypatch, capsys) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        "[tool.agentic-research-loop]\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert main(["list"]) == 1
+
+    err = capsys.readouterr().err
+    assert "pyproject.toml" in err
+    assert "Fix: rename it to [tool.fact-finder]" in err

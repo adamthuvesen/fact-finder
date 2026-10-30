@@ -19,7 +19,7 @@ slice.
 
 1. Run `uv run research source enable gsc`. No MCP config changes: there is no server.
 2. Authenticate with Application Default Credentials, requesting the read-only
-   scope (`agentic_research_loop.google_api` picks ADC up automatically):
+   scope (`fact_finder.google_api` picks ADC up automatically):
 
    ```bash
    gcloud auth application-default login \\
@@ -33,7 +33,7 @@ slice.
    `--client-id-file=/path/to/your-oauth-client.json`.
 
 3. Configure the site. There is no default. Set `GSC_SITE`, or `gsc_site` under
-   `[tool.agentic-research-loop]` in `pyproject.toml`, to the verified Search Console
+   `[tool.fact-finder]` in `pyproject.toml`, to the verified Search Console
    property URL (e.g. `https://www.example.com/` or `sc-domain:example.com`). The
    environment variable wins. Also set:
    - `GCP_QUOTA_PROJECT` - optional; a GCP project to bill the API quota to.

@@ -5,10 +5,11 @@ import re
 from pathlib import Path
 
 import pytest
+import tomlkit
 
-from agentic_research_loop.cli import main
-from agentic_research_loop.doctor import allowlist_problem, run_doctor
-from agentic_research_loop.source_bundles import enable_bundle
+from fact_finder.cli import main
+from fact_finder.doctor import allowlist_problem, run_doctor
+from fact_finder.source_bundles import enable_bundle
 
 
 def _statuses(repo: Path) -> dict[str, list[str]]:
@@ -312,3 +313,40 @@ def test_added_credentials_pass(repo) -> None:
     )
 
     assert "fail" not in _statuses(repo)["datadog"]
+
+
+@pytest.mark.parametrize(
+    ("path", "field", "value", "location"),
+    [
+        (".mcp.json", "args", 3, "args"),
+        (".mcp.json", "args", "--read-only", "args"),
+        (".mcp.json", "args", [3], "args[0]"),
+        (".mcp.json", "url", 3, "url"),
+        (".mcp.json", "command", ["npx"], "command"),
+        (".cursor/mcp.json", "args", ["-y", None], "args[1]"),
+        (".codex/config.toml", "args", 3, "args"),
+        (".codex/config.toml", "disabled_tools", 3, "disabled_tools"),
+        (".codex/config.toml", "disabled_tools", [{}], "disabled_tools[0]"),
+    ],
+)
+def test_malformed_server_fields_fail_with_a_fix(
+    repo, capsys, path, field, value, location
+) -> None:
+    enable_bundle(repo, "github")
+    config = repo / path
+    if config.suffix == ".toml":
+        document = tomlkit.parse(config.read_text())
+        document["mcp_servers"]["github"][field] = value
+        config.write_text(tomlkit.dumps(document))
+    else:
+        _edit_json(config, lambda d: d["mcpServers"]["github"].update({field: value}))
+    before = {p: p.read_bytes() for p in repo.rglob("*") if p.is_file()}
+
+    assert main(["doctor"]) == 1
+
+    captured = capsys.readouterr()
+    assert str(config) in captured.out
+    assert f"server 'github' field {location} must be" in captured.out
+    assert "Fix:" in captured.out
+    assert "Traceback" not in captured.out + captured.err
+    assert {p: p.read_bytes() for p in repo.rglob("*") if p.is_file()} == before

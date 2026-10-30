@@ -1,6 +1,6 @@
-# Agentic Research Loop
+# Fact Finder
 
-![License](https://img.shields.io/github/license/adamthuvesen/agentic-research-loop) ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
+![License](https://img.shields.io/github/license/adamthuvesen/fact-finder) ![Python](https://img.shields.io/badge/python-3.13%2B-blue)
 
 A research kit for bounded investigations. Give it a question and a set of read-only
 sources. It creates a workspace, frames the case, and validates the evidence the
@@ -70,11 +70,11 @@ definition, and `research source show <name>` prints its setup steps.
 
 ## Use from another repo
 
-Add this package pinned by git SHA, add a `[tool.agentic-research-loop]` table to your `pyproject.toml`,
+Add this package pinned by git SHA, add a `[tool.fact-finder]` table to your `pyproject.toml`,
 and run `uv run research setup`. That table extends the engine with no engine change:
 
 ```toml
-[tool.agentic-research-loop]
+[tool.fact-finder]
 required_brief_fields = ["Owner"]  # research init scaffolds them and validate checks them
 sources_dir = "sources"            # your own or overriding bundles; default examples/sources
 gsc_site = "https://www.example.com/"

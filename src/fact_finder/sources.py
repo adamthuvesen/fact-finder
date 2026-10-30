@@ -112,12 +112,33 @@ class ServerDefinition(StrictModel):
         return self
 
 
+class Connector(StrictModel):
+    """A claude.ai connector. Every clone can reach it, with no `research setup`."""
+
+    # The part of `mcp__claude_ai_<name>__<tool>` that names the connector, such as Google_Drive.
+    name: Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]+$")]
+    # Omit to deny the bundle server's write tools, when the connector shares their names.
+    write_tools: Annotated[list[Text], Field(min_length=1)] | None = None
+
+
 class BundleFile(StrictModel):
     """One source bundle: everything about a source lives in one `<name>.toml`."""
 
     setup: Text
     source: SourceSpec
     server: ServerDefinition | None = None
+    connectors: list[Connector] = Field(default_factory=list[Connector])
+
+    @model_validator(mode="after")
+    def connectors_name_write_tools(self) -> Self:
+        server_tools = self.server.write_tools if self.server else []
+        for connector in self.connectors:
+            if connector.write_tools is None and not server_tools:
+                raise ValueError(
+                    f"connector {connector.name} has no write tools to deny. "
+                    "Fix: list its write_tools, or add them to [server]"
+                )
+        return self
 
 
 class Wiring(StrictModel):
@@ -131,8 +152,6 @@ class Wiring(StrictModel):
 
 class SourcesFile(StrictModel):
     sources: dict[str, SourceSpec]
-    # An older install kept ownership here. It is read once and no longer written.
-    wiring: dict[str, Wiring] = Field(default_factory=dict[str, Wiring])
 
 
 WEB_SEARCH = "web-search"
@@ -194,7 +213,7 @@ def load_sources_file(repo_root: Path) -> SourcesFile:
 def render_sources_file(document: SourcesFile) -> str:
     return (
         json.dumps(
-            document.model_dump(exclude_defaults=True, exclude={"wiring"}),
+            document.model_dump(exclude_defaults=True),
             indent=2,
             ensure_ascii=False,
         )

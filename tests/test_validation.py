@@ -16,7 +16,7 @@ from support.cases import (
 )
 from support.checks import validate_case
 
-from agentic_research_loop.templates import (
+from fact_finder.templates import (
     EXPLORATORY_LABEL,
     PLACEHOLDER,
     notes_template,
@@ -24,7 +24,7 @@ from agentic_research_loop.templates import (
     report_template,
     source_objects_template,
 )
-from agentic_research_loop.validation import (
+from fact_finder.validation import (
     accept_findings,
     assess_case,
     parse_source_objects,

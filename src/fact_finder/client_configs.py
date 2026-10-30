@@ -2,7 +2,8 @@
 
 Claude Code reads `.mcp.json`, and merges the deny lists of `.claude/settings.json` and the
 untracked `.claude/settings.local.json`. A source's rules go in the local file, so enabling one
-leaves shared settings alone. Cursor reads
+leaves shared settings alone. Connector rules go in the shared file, because every clone can reach
+a claude.ai connector. Cursor reads
 `.cursor/mcp.json` and `.cursor/cli.json`. Codex reads `.codex/config.toml`.
 
 These files belong to the user. The engine records what it added in `Wiring`. An entry it does
@@ -16,7 +17,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, get_args
+from typing import Any, Literal, cast, get_args
 
 import tomlkit
 from pydantic import JsonValue, TypeAdapter, ValidationError
@@ -127,7 +128,7 @@ def server_differences(entry: dict[str, Any], server: ServerDefinition) -> list[
         for key, default in (("url", server.url), ("command", server.command))
         if not _matches(entry.get(key), default, server)
     ]
-    args = _without_optional_args([str(arg) for arg in entry.get("args", [])], server)
+    args = _without_optional_args(entry.get("args", []), server)
     if len(args) != len(server.args) or not all(
         _matches(arg, default, server)
         for arg, default in zip(args, server.args, strict=True)
@@ -234,20 +235,92 @@ class ClientConfigs:
     cursor_mcp: JsonObject
     codex: Any
     claude_local_settings: JsonObject
-    claude_shared_deny: list[str]
+    claude_settings: JsonObject
     cursor_permissions: JsonObject
+    claude_settings_changed: bool = False
 
     @classmethod
     def read(cls, root: Path) -> ClientConfigs:
-        return cls(
+        configs = cls(
             root=root,
             claude_mcp=read_json_object(root / CLAUDE_MCP) or {"mcpServers": {}},
             cursor_mcp=read_json_object(root / CURSOR_MCP) or {"mcpServers": {}},
             codex=_read_toml(root / CODEX_CONFIG),
             claude_local_settings=read_json_object(root / CLAUDE_LOCAL_SETTINGS),
-            claude_shared_deny=deny_rules(read_json_object(root / CLAUDE_SETTINGS)),
+            claude_settings=read_json_object(root / CLAUDE_SETTINGS),
             cursor_permissions=read_json_object(root / CURSOR_PERMISSIONS),
         )
+        configs._validate_servers()
+        return configs
+
+    def _validate_servers(self) -> None:
+        documents = {
+            "claude": self.claude_mcp,
+            "cursor": self.cursor_mcp,
+            "codex": self.codex.unwrap(),
+        }
+        for client in CLIENTS:
+            path = str(self.root / CLIENT_FILES[client])
+            key = "mcp_servers" if client == "codex" else "mcpServers"
+            servers = documents[client].get(key, {})
+            if not isinstance(servers, dict):
+                raise SourceConfigError(
+                    problem(
+                        f"{key} must be an object",
+                        f"write {key} as an object",
+                        file=path,
+                    )
+                )
+            for name, entry in cast("dict[str, object]", servers).items():
+                if not isinstance(entry, dict):
+                    raise SourceConfigError(
+                        problem(
+                            f"server '{name}' must be an object",
+                            f"write {key}.{name} as an object",
+                            file=path,
+                        )
+                    )
+                entry_fields = cast("dict[str, object]", entry)
+                fields = {
+                    "url": TypeAdapter(str),
+                    "command": TypeAdapter(str),
+                    "args": TypeAdapter(list[str]),
+                }
+                if client == "codex":
+                    fields["disabled_tools"] = TypeAdapter(list[str])
+                for field, adapter in fields.items():
+                    if field not in entry_fields:
+                        continue
+                    try:
+                        adapter.validate_python(entry_fields[field], strict=True)
+                    except ValidationError as exc:
+                        error = exc.errors()[0]
+                        location = field + "".join(f"[{part}]" for part in error["loc"])
+                        shape = (
+                            "a list of strings"
+                            if error["type"] == "list_type"
+                            else "a string"
+                        )
+                        raise SourceConfigError(
+                            problem(
+                                f"server '{name}' field {location} must be {shape}",
+                                f"write {key}.{name}.{location} as {shape}",
+                                file=path,
+                            )
+                        ) from exc
+
+    @property
+    def claude_shared_deny(self) -> list[str]:
+        return deny_rules(self.claude_settings)
+
+    def deny_in_shared_settings(self, rules: list[str]) -> list[str]:
+        """Add connector rules to the shared file, and return the ones it lacked.
+
+        A rule is never removed: an extra deny fails closed, and other clones share the file.
+        """
+        added = _add_deny_rules(self.claude_settings, rules)
+        self.claude_settings_changed |= bool(added)
+        return added
 
     def _codex_servers(self) -> Any:
         servers: Any = self.codex.get("mcp_servers")
@@ -447,6 +520,9 @@ class ClientConfigs:
             if document or (self.root / relative).exists()
         }
         rendered[CODEX_CONFIG] = tomlkit.dumps(self.codex)
+        if self.claude_settings_changed:
+            # Rendered only on a real change, so a person's own formatting stays.
+            rendered[CLAUDE_SETTINGS] = _render(self.claude_settings)
         changed: dict[Path, str] = {}
         for relative, content in rendered.items():
             path = self.root / relative

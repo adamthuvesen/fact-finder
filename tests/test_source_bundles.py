@@ -10,13 +10,13 @@ from unittest.mock import patch
 import pytest
 import tomlkit
 
-from agentic_research_loop import client_configs as cc
-from agentic_research_loop import io as io_module
-from agentic_research_loop import source_bundles as sb
-from agentic_research_loop.cli import main
-from agentic_research_loop.doctor import run_doctor
-from agentic_research_loop.repo_setup import setup_repo
-from agentic_research_loop.sources import (
+from fact_finder import client_configs as cc
+from fact_finder import io as io_module
+from fact_finder import source_bundles as sb
+from fact_finder.cli import main
+from fact_finder.doctor import run_doctor
+from fact_finder.repo_setup import setup_repo
+from fact_finder.sources import (
     OAuthClient,
     ServerDefinition,
     SourceConfigError,
@@ -38,7 +38,7 @@ SERVER = {
 }
 
 
-def write_bundle(repo, name, spec, server=None):
+def write_bundle(repo, name, spec, server=None, connectors=None):
     bundles = repo / "examples" / "sources"
     bundles.mkdir(parents=True, exist_ok=True)
     document = {
@@ -47,6 +47,8 @@ def write_bundle(repo, name, spec, server=None):
     }
     if server is not None:
         document["server"] = server
+    if connectors is not None:
+        document["connectors"] = connectors
     (bundles / f"{name}.toml").write_text(tomlkit.dumps(document))
 
 
@@ -124,6 +126,45 @@ def test_deny_lists_keep_entries_this_tool_does_not_own(repo):
 
     settings = json.loads((repo / ".claude" / "settings.local.json").read_text())
     assert settings == {"permissions": {"deny": ["Bash(rm:*)"]}, "model": "x"}
+
+
+def test_setup_denies_every_bundles_connector_writes_in_shared_settings(repo):
+    write_bundle(repo, "foo", SPEC, SERVER, connectors=[{"name": "Foo"}])
+    native = {**SPEC, "display_name": "Mail", "transport": "native"}
+    write_bundle(
+        repo, "mail", native, connectors=[{"name": "Mail", "write_tools": ["send"]}]
+    )
+    shared = repo / ".claude" / "settings.json"
+    shared.parent.mkdir()
+    shared.write_text('{"model": "x", "permissions": {"deny": ["Read(./.env)"]}}')
+
+    setup_repo(repo)
+    setup_repo(repo)
+
+    assert json.loads(shared.read_text())["model"] == "x"
+    assert _deny(repo, ".claude/settings.json") == [
+        "Read(./.env)",
+        "mcp__claude_ai_Foo__delete_thing",
+        "mcp__claude_ai_Mail__send",
+    ]
+    _edit_json_file(shared, lambda d: d["permissions"]["deny"].pop())
+    assert [check.message for check in run_doctor(repo) if check.source == "mail"] == [
+        ".claude/settings.json: does not deny mcp__claude_ai_Mail__send. "
+        "Fix: run `research setup`, then commit the file."
+    ]
+
+
+def test_a_connector_needs_write_tools_to_deny(repo):
+    write_bundle(repo, "mail", SPEC, connectors=[{"name": "Mail"}])
+
+    with pytest.raises(SourceConfigError, match="connector Mail has no write tools"):
+        sb.load_bundle(repo, "mail")
+
+
+def _edit_json_file(path, edit):
+    document = json.loads(path.read_text())
+    edit(document)
+    path.write_text(json.dumps(document))
 
 
 def test_stdio_and_oauth_shapes():
@@ -212,6 +253,7 @@ def test_rewiring_keeps_user_values_and_restores_only_what_is_missing(repo):
     sb.enable_bundle(repo, "foo")
     claude = json.loads((repo / ".mcp.json").read_text())
     claude["mcpServers"]["foo"]["headers"] = {"X": "mine"}
+    claude["mcpServers"]["foo"]["client_extension"] = {"args": 3}
     (repo / ".mcp.json").write_text(json.dumps(claude))
     codex = repo / ".codex" / "config.toml"
     codex.write_text(codex.read_text() + '\n[mcp_servers.foo.env]\nA = "1"\n')
@@ -222,8 +264,43 @@ def test_rewiring_keeps_user_values_and_restores_only_what_is_missing(repo):
     sb.enable_bundle(repo, "foo")
 
     assert _claude(repo)["foo"]["headers"] == {"X": "mine"}
+    assert _claude(repo)["foo"]["client_extension"] == {"args": 3}
     assert _codex(repo)["foo"]["env"] == {"A": "1"}
     assert _cursor(repo)["foo"] == {"url": "https://foo.example/mcp"}
+
+
+@pytest.mark.parametrize(
+    ("path", "field", "value", "location"),
+    [
+        (".mcp.json", "args", 3, "args"),
+        (".mcp.json", "args", ["-y", 3], "args[1]"),
+        (".cursor/mcp.json", "url", 3, "url"),
+        (".codex/config.toml", "disabled_tools", 3, "disabled_tools"),
+        (".codex/config.toml", "disabled_tools", [3], "disabled_tools[0]"),
+    ],
+)
+def test_setup_rejects_malformed_server_fields_without_writes(
+    repo, path, field, value, location
+):
+    sb.enable_bundle(repo, "foo")
+    config = repo / path
+    if config.suffix == ".toml":
+        document = tomlkit.parse(config.read_text())
+        document["mcp_servers"]["foo"][field] = value
+        config.write_text(tomlkit.dumps(document))
+    else:
+        document = json.loads(config.read_text())
+        document["mcpServers"]["foo"][field] = value
+        config.write_text(json.dumps(document))
+    before = _snapshot(repo)
+
+    with pytest.raises(SourceConfigError) as caught:
+        setup_repo(repo)
+
+    assert str(config) in str(caught.value)
+    assert f"server 'foo' field {location} must be" in str(caught.value)
+    assert "Fix:" in str(caught.value)
+    assert _snapshot(repo) == before
 
 
 def test_setup_adds_a_write_tool_a_wired_bundle_gained(repo):
@@ -236,7 +313,7 @@ def test_setup_adds_a_write_tool_a_wired_bundle_gained(repo):
         SPEC,
         {**SERVER, "write_tools": ["delete_thing", "purge_thing"]},
     )
-    (repo / "pyproject.toml").write_text("[tool.agentic-research-loop]\n")
+    (repo / "pyproject.toml").write_text("[tool.fact-finder]\n")
 
     actions = setup_repo(repo)
 
@@ -398,16 +475,6 @@ def test_packaged_bundles_reach_a_repo_without_examples(tmp_path):
     assert "github" in sb.available_bundles(tmp_path)
 
 
-def test_an_older_three_file_bundle_explains_the_conversion(repo):
-    old = repo / "examples" / "sources" / "bar"
-    old.mkdir()
-    (old / "source.json").write_text("{}")
-
-    assert "bar" in sb.available_bundles(repo)
-    with pytest.raises(SourceConfigError, match=r"merge source.json.*into bar\.toml"):
-        sb.load_bundle(repo, "bar")
-
-
 def test_mcpless_bundle_enables_without_touching_servers(repo):
     write_bundle(
         repo,
@@ -462,7 +529,7 @@ def test_goals_flag_is_written_even_for_an_mcpless_bundle(tmp_path) -> None:
 
 def _consumer(tmp_path, settings=""):
     (tmp_path / "pyproject.toml").write_text(
-        f"[tool.agentic-research-loop]\n{settings}", encoding="utf-8"
+        f"[tool.fact-finder]\n{settings}", encoding="utf-8"
     )
     return tmp_path
 
@@ -624,7 +691,6 @@ def _pull_disable(repo, name):
     path = repo / "config" / "sources.json"
     document = json.loads(path.read_text())
     del document["sources"][name]
-    document.get("wiring", {}).pop(name, None)
     path.write_text(json.dumps(document))
 
 
@@ -782,29 +848,6 @@ def test_a_deny_rule_stays_while_its_server_remains(repo):
     assert cc.deny_rules(configs.cursor_permissions) == []
 
 
-def test_older_recorded_wiring_is_adopted_only_where_the_entry_matches(repo):
-    """An older install recorded ownership in sources.json. A differing entry stays mine."""
-    sb.enable_bundle(repo, "foo")
-    (repo / ".research" / "wiring.json").unlink()
-    path = repo / "config" / "sources.json"
-    document = json.loads(path.read_text())
-    document["wiring"] = {
-        "foo": {"server_name": "foo", "clients": ["claude", "cursor"]}
-    }
-    path.write_text(json.dumps(document))
-    cursor = json.loads((repo / ".cursor" / "mcp.json").read_text())
-    cursor["mcpServers"]["foo"]["url"] = "https://mine.example"
-    (repo / ".cursor" / "mcp.json").write_text(json.dumps(cursor))
-
-    actions = setup_repo(repo)
-
-    assert any(".cursor/mcp.json" in line and "Fix:" in line for line in actions)
-    assert _cursor(repo)["foo"]["url"] == "https://mine.example"
-    assert "wiring" not in json.loads(path.read_text())
-    wiring = json.loads((repo / ".research" / "wiring.json").read_text())["foo"]
-    assert wiring["clients"] == ["claude"]
-
-
 def test_doctor_names_a_differing_entry_research_does_not_own(repo):
     sb.enable_bundle(repo, "foo")
     (repo / ".research" / "wiring.json").unlink()
@@ -912,7 +955,7 @@ def test_a_differing_entry_stays_and_setup_finishes_the_rest(repo, entry):
 
 def test_setup_exits_non_zero_while_an_entry_needs_a_person(repo, monkeypatch, capsys):
     _fresh_clone(repo, 'url = "https://mine.example/mcp"')
-    (repo / "pyproject.toml").write_text("[tool.agentic-research-loop]\n")
+    (repo / "pyproject.toml").write_text("[tool.fact-finder]\n")
     monkeypatch.chdir(repo)
 
     assert main(["setup"]) == 1

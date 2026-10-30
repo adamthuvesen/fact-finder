@@ -18,6 +18,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from .client_configs import (
     CLAUDE_LOCAL_SETTINGS,
+    CLAUDE_SETTINGS,
     CLIENT_FILES,
     CLIENTS,
     CODEX_CONFIG,
@@ -35,6 +36,7 @@ from .source_bundles import (
     WIRING_FILE,
     Bundle,
     conflict_problem,
+    connector_deny_rules,
     enabled_bundles,
     owned_wiring,
     wiring_is_unwanted,
@@ -184,8 +186,8 @@ def _client_checks(
             reason = control_problem(
                 repo_root,
                 control,
-                url=str(entry.get("url", "")),
-                args=[str(arg) for arg in entry.get("args", [])],
+                url=entry.get("url", ""),
+                args=entry.get("args", []),
             )
             if reason:
                 checks.append(
@@ -263,6 +265,26 @@ def _check_bundle(
     return checks
 
 
+def _connector_checks(repo_root: Path, clients: ClientConfigs) -> list[DoctorCheck]:
+    checks: list[DoctorCheck] = []
+    for name, rules in connector_deny_rules(repo_root).items():
+        missing = [rule for rule in rules if rule not in clients.claude_shared_deny]
+        if missing:
+            more = f" and {len(missing) - 1} more" if len(missing) > 1 else ""
+            checks.append(
+                DoctorCheck(
+                    name,
+                    "fail",
+                    problem(
+                        f"does not deny {missing[0]}{more}",
+                        "run `research setup`, then commit the file",
+                        file=CLAUDE_SETTINGS,
+                    ),
+                )
+            )
+    return checks
+
+
 def _goals_checks(repo_root: Path, clients: ClientConfigs) -> list[DoctorCheck]:
     if not (repo_root / CODEX_CONFIG).exists():
         return []
@@ -316,10 +338,13 @@ def run_doctor(repo_root: Path) -> list[DoctorCheck]:
     bundles, without_bundle = enabled_bundles(repo_root)
     try:
         clients = ClientConfigs.read(repo_root)
-        ledger = owned_wiring(repo_root, load_sources_file(repo_root), clients)
+        ledger = owned_wiring(repo_root)
     except SourceConfigError as exc:
         return [DoctorCheck("client config", "fail", str(exc))]
-    checks = _goals_checks(repo_root, clients)
+    checks = [
+        *_goals_checks(repo_root, clients),
+        *_connector_checks(repo_root, clients),
+    ]
     checks.extend(
         check
         for bundle in bundles

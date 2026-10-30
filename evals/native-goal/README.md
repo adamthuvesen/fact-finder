@@ -17,7 +17,7 @@ export carries your current uncommitted changes but strips the committed demo
 case, prior results, and the decision record, so the run cannot read the answer.
 
 ```bash
-canary_root="$(mktemp -d)/agentic-research-loop"
+canary_root="$(mktemp -d)/fact-finder"
 uv run python evals/native-goal/prepare_workspace.py "$canary_root"
 cd "$canary_root"
 test ! -e evals/native-goal/results

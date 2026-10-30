@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agentic_research_loop.from_spec import (
+from fact_finder.from_spec import (
     load_from_spec_dir,
     replace_markdown_section,
 )

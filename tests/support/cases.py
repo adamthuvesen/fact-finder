@@ -6,7 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from agentic_research_loop.evidence import review_snapshot
+from fact_finder.evidence import review_snapshot
 
 QUESTION = "Why did weekly export failures rise in June 2026?"
 

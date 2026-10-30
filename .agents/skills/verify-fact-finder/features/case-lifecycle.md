@@ -2,7 +2,7 @@
 
 A case moves from scaffold to a strict pass, and a late edit makes its review stale.
 
-Source: src/agentic_research_loop/cli.py, src/agentic_research_loop/research.py
+Source: src/fact_finder/cli.py, src/fact_finder/research.py
 Inventory-id: init, goal, validate, review-snapshot, list
 
 ## Sub-features

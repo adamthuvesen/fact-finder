@@ -1,11 +1,11 @@
 ---
-name: verify-agentic-research-loop
-description: Drives the agentic-research-loop `research` CLI, installed from a wheel, in a throwaway consumer repo. Use to run, launch, drive, or verify agentic-research-loop, or to prove a change to it works.
+name: verify-fact-finder
+description: Drives the fact-finder `research` CLI, installed from a wheel, in a throwaway consumer repo. Use to run, launch, drive, or verify fact-finder, or to prove a change to it works.
 ---
 
-# Verify agentic-research-loop
+# Verify fact-finder
 
-Helper: `.agents/skills/verify-agentic-research-loop/verify` (`H` below), from the repo root.
+Helper: `.agents/skills/verify-fact-finder/verify` (`H` below), from the repo root.
 
 ## Launch / Reset
 
