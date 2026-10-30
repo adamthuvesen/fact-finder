@@ -1,0 +1,7 @@
+id: no-dynamic-import
+valid:
+  - import subprocess
+  - importlib.util.find_spec("x")
+invalid:
+  - __import__("subprocess")
+  - builtins.__import__("subprocess")

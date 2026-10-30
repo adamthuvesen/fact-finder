@@ -118,3 +118,37 @@ def test_mcp_json_is_not_tracked() -> None:
     ).stdout
 
     assert tracked == ""
+
+
+def _missing_enforcer(cited: str) -> bool:
+    if cited.startswith("make "):
+        makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+        target = re.escape(cited.removeprefix("make "))
+        return not re.search(rf"^{target}:", makefile, re.M)
+    path, separator, name = cited.partition("::")
+    if not separator or not (ROOT / path).is_file():
+        return True
+    definition = rf"^(def|class) {re.escape(name)}\b"
+    return not re.search(definition, (ROOT / path).read_text(encoding="utf-8"), re.M)
+
+
+def test_enforced_rules_cite_real_checks() -> None:
+    text = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    assert "\n## Enforced Rules\n" in text, (
+        "AGENTS.md: no `## Enforced Rules` section. Fix: restore the heading and its table"
+    )
+    table = text.split("\n## Enforced Rules\n", 1)[1].split("\n## ", 1)[0]
+    rows = [line.split("|") for line in table.splitlines() if line.startswith("| ")]
+    cells = [row[2] for row in rows[2:]]
+    uncited = [i for i, cell in enumerate(cells, 1) if not re.search(r"`[^`]+`", cell)]
+    cited = [token for cell in cells for token in re.findall(r"`([^`]+)`", cell)]
+    missing = [token for token in cited if _missing_enforcer(token)]
+
+    assert cells, "AGENTS.md: Enforced Rules has no rows. Fix: restore the table"
+    assert not uncited, (
+        f"AGENTS.md: Enforced Rules rows {uncited} cite nothing. Fix: cite a check"
+    )
+    assert not missing, (
+        f"AGENTS.md: Enforced Rules cites {missing}, which are not `path::name` defined "
+        "in that file or a `make` target. Fix: cite the test function or make target"
+    )
