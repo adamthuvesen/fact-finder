@@ -1,0 +1,14 @@
+id: no-network-client
+valid:
+  - import urllib.parse
+  - from urllib.parse import urlencode
+  - from http import HTTPStatus
+  - import json
+invalid:
+  - import socket
+  - import urllib.request
+  - import http.client as hc
+  - import requests
+  - from httpx import Client
+  - from urllib import request
+  - from google.auth.transport.requests import Request

@@ -32,6 +32,8 @@ There is no retry, so there is no FLAKY result. A failure is a FAIL.
 
 A `tripwire` FAIL means the CLI tried to run a stubbed tool (`claude`, `codex`, `curl`, `brew`,
 `launchctl`, and others). Read the logged command, and treat it as a boundary break.
+A `repo-state` FAIL means a run changed this checkout: a file, the index, HEAD, an ignored
+path, or `.git/config`. Drives must touch only their scratch copies.
 
 ## Limits
 

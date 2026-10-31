@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -73,24 +74,30 @@ def test_skills_keep_their_hard_limits(skill: str, limit: str) -> None:
     assert limit in text
 
 
-def test_no_tracked_file_names_the_private_company() -> None:
-    """This repo is public, so a private name in any file is a leak."""
-    name = "menti" + "meter"
+PRIVATE_NAME = "menti" + "meter"
+GIT_ENV = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+
+
+def _files_naming(root: Path, name: str) -> list[str]:
     listed = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
-        cwd=ROOT,
+        cwd=root,
+        env=GIT_ENV,
         check=True,
         capture_output=True,
         text=True,
     ).stdout.splitlines()
-    leaks = [
+    return [
         file
         for file in listed
-        if (ROOT / file).is_file()
-        and name in (ROOT / file).read_text("utf-8", errors="ignore").lower()
+        if (root / file).is_file()
+        and name in (root / file).read_text("utf-8", errors="ignore").lower()
     ]
 
-    assert leaks == []
+
+def test_no_tracked_file_names_the_private_company() -> None:
+    """This repo is public, so a private name in any file is a leak."""
+    assert _files_naming(ROOT, PRIVATE_NAME) == []
 
 
 def test_no_bundle_names_a_removed_file() -> None:
@@ -148,3 +155,18 @@ def test_enforced_rules_cite_real_checks() -> None:
         f"AGENTS.md: Enforced Rules cites {missing}, which are not `path::name` defined "
         "in that file or a `make` target. Fix: cite the test function or make target"
     )
+
+
+def test_the_doc_scans_find_known_cases(tmp_path: Path) -> None:
+    """A scan that finds nothing passes. Prove each one still finds a known file, link, and name."""
+    assert ROOT / "AGENTS.md" in _markdown_files()
+    assert _relative_links("[a](docs/x.md#part) [b](https://e.com) [c](#top)") == ["docs/x.md"]
+    assert not _missing_enforcer("make check")
+    assert _missing_enforcer("make chec")
+    assert not _missing_enforcer(
+        "tests/test_docs_contract.py::test_enforced_rules_cite_real_checks"
+    )
+    assert _missing_enforcer("tests/test_docs_contract.py::test_enforced_rules")
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=GIT_ENV, check=True)
+    (tmp_path / "new.md").write_text(f"Built at {PRIVATE_NAME.title()}.", encoding="utf-8")
+    assert _files_naming(tmp_path, PRIVATE_NAME) == ["new.md"]

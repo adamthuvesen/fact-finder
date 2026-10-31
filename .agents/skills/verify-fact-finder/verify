@@ -132,11 +132,50 @@ class Session:
 
 def make_run_dir() -> Path:
     dirty = "-dirty" if git("status", "--porcelain").strip() else ""
-    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     sha7 = git("rev-parse", "--short=7", "HEAD").strip()
     path = REPO / ".verify" / "runs" / f"{stamp}-{sha7}{dirty}"
-    path.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.mkdir()
     return path
+
+
+def file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "absent"
+
+
+def repo_state() -> dict[str, str]:
+    """HEAD, the branch, git config and hooks, and every changed, untracked, or ignored path.
+
+    Changed and untracked files compare by content. Ignored files compare by size and mtime,
+    because `.venv` holds too many files to hash.
+    """
+    common = (REPO / git("rev-parse", "--git-common-dir").strip()).resolve()
+    state = {".git/config": file_digest(common / "config")}
+    state |= {f".git/hooks/{hook.name}": file_digest(hook) for hook in (common / "hooks").glob("*")}
+    status = git("status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all", "--ignored")
+    entries = iter(status.split("\0"))
+    for entry in entries:
+        if entry.startswith("# branch."):
+            key, _, value = entry.removeprefix("# ").partition(" ")
+            state[key] = value
+            continue
+        if not entry or entry.startswith("#"):
+            continue
+        kind = entry[0]
+        fields = {"1": 8, "2": 9, "u": 10}.get(kind)
+        path = entry.split(" ", fields)[fields] if fields else entry[2:]
+        if kind == "2":
+            next(entries)
+        if path.startswith(".verify/") or "__pycache__" in path.split("/"):
+            continue
+        target = REPO / path
+        if kind == "!":
+            info = target.lstat()
+            state[path] = f"ignored:{info.st_size}:{info.st_mtime_ns}"
+        else:
+            state[path] = f"{entry.split(' ', 2)[1] if fields else kind}:{file_digest(target)}"
+    return state
 
 
 def preflight(run_dir: Path) -> None:
@@ -264,6 +303,7 @@ def main(argv: list[str]) -> int:
     else:
         names = argv
     run_dir = make_run_dir()
+    before = repo_state()
     print(f"verify: building the wheel, then driving {', '.join(names) or 'control'}")
     preflight(run_dir)
     with ThreadPoolExecutor(max_workers=len(DRIVES)) as pool:
@@ -273,6 +313,10 @@ def main(argv: list[str]) -> int:
     if tripped:
         detail = f"a stubbed tool ran: {tripped}"
         results.append({"drive": "tripwire", "result": "FAIL", "seconds": 0, "detail": detail})
+    after = repo_state()
+    if changed := sorted(k for k in before.keys() | after.keys() if before.get(k) != after.get(k)):
+        detail = f"the run changed the checkout: {', '.join(changed)}"
+        results.append({"drive": "repo-state", "result": "FAIL", "seconds": 0, "detail": detail})
     for row in results:
         print(f"{row['result']} {row['drive']} {row['seconds']}s {row['detail']}")
     summary = {

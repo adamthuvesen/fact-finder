@@ -1,0 +1,18 @@
+id: no-network-client
+language: python
+severity: error
+message: "Network clients belong to src/fact_finder/google_api.py. Fix: call google_api, or add the request there."
+files:
+  - src/**/*.py
+  - scripts/**/*.py
+  - evals/**/*.py
+ignores:
+  - src/fact_finder/google_api.py
+rule:
+  any:
+    - kind: import_statement
+      has: {kind: dotted_name, stopBy: end, regex: ^(socket|ssl|http\.client|urllib\.request|urllib3|requests|httpx|aiohttp|ftplib|smtplib|google\.auth\.transport)(\.|$)}
+    - kind: import_from_statement
+      has: {field: module_name, regex: ^(socket|ssl|http\.client|urllib\.request|urllib3|requests|httpx|aiohttp|ftplib|smtplib|google\.auth\.transport)(\.|$)}
+    - kind: import_from_statement
+      regex: ^from\s+(urllib|http|google\.auth)\s+import\b.*\b(request|client|transport)\b
