@@ -1,0 +1,11 @@
+id: no-noqa-on-ban
+language: python
+severity: error
+message: "A noqa on TID251 turns off the process, SDK, and dynamic-import bans. Fix: remove the banned import; scripts/check_agent_setup.py owns process calls."
+files:
+  - src/**/*.py
+  - scripts/**/*.py
+  - evals/**/*.py
+rule:
+  kind: comment
+  regex: noqa\b.*TID25

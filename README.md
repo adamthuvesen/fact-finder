@@ -85,7 +85,7 @@ ga4_property_id = "123456789"
 
 ## Development
 
-`make check` is the gate. `make quick` checks only what changed. Client goal behavior is an external
+[AGENTS.md](AGENTS.md) holds the commands, boundaries, and enforced rules. `make check` is the gate. `make quick` checks only what changed. Client goal behavior is an external
 dependency, so [`evals/native-goal/`](evals/native-goal/README.md) holds a blind, keyless canary.
 
 ## License

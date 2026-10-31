@@ -1,0 +1,7 @@
+id: no-noqa-on-ban
+valid:
+  - "x = 1  # noqa: S310 - fixed https URL"
+invalid:
+  - "import subprocess  # noqa: TID251"
+  - "import os  # noqa: E401, TID251"
+  - "# ruff: noqa: TID251"

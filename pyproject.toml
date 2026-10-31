@@ -51,6 +51,7 @@ research = "fact_finder.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
+addopts = ["--strict-markers"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/fact_finder"]
@@ -136,7 +137,7 @@ venvPath = "."
 venv = ".venv"
 include = ["."]
 failOnWarnings = false
-exclude = ["**/.venv", "**/__pycache__", "research", "evals", "examples", "vulture_whitelist.py"]
+exclude = ["**/.venv", "**/__pycache__", "research", "examples", "vulture_whitelist.py"]
 reportUnknownMemberType = false
 reportUnknownArgumentType = false
 reportUnknownVariableType = false
