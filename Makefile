@@ -7,8 +7,8 @@ check: lock lint types deps dead boundaries rules test
 
 # Apply every auto-fixer: ruff lint fixes, then ruff format.
 fix:
-	$(RUN) ruff check --fix .
-	$(RUN) ruff format .
+	$(RUN) ruff check --fix . .agents/skills/verify-fact-finder/verify
+	$(RUN) ruff format . .agents/skills/verify-fact-finder/verify
 
 # Only what changed, in about two seconds. The edit hook runs the same script on one file.
 quick:
@@ -25,8 +25,8 @@ lock:
 	uv lock --check
 
 lint:
-	$(RUN) ruff check .
-	$(RUN) ruff format --check .
+	$(RUN) ruff check . .agents/skills/verify-fact-finder/verify
+	$(RUN) ruff format --check . .agents/skills/verify-fact-finder/verify
 
 types:
 	$(RUN) basedpyright

@@ -195,15 +195,31 @@ def drive(name: str, run_dir: Path) -> dict[str, object]:
     return result_row(name, started, session.failures, DRIVES[name].proves)
 
 
+# The control passes only when strict validation refuses the lorem case with the expected output
+# and the planted exit code is the one thing that fails.
+CONTROL_FAILURE = "`research validate {case} --strict`: expected exit 0, got 1"
+
+
 def control(run_dir: Path) -> dict[str, object]:
     """Assert that the lorem case passes strict validation. It does not, so this check must FAIL."""
     started = time.monotonic()
     session = Session("control", run_dir)
     case = new_case(session, "control")
     lorem(case)
-    session.expect(["validate", case.name, "--strict"], 0, "cannot be proved by a gate")
+    session.expect(["validate", case.name, "--strict"], 0, "the independent review is missing")
+    expected = [CONTROL_FAILURE.format(case=case.name)]
+    if session.failures == expected:
+        return result_row("control", started, [], "FAIL observed: " + expected[0])
     if session.failures:
-        return result_row("control", started, [], "FAIL observed: " + "; ".join(session.failures))
+        return result_row(
+            "control",
+            started,
+            [
+                f"failed for another reason; expected {expected[0]!r}: "
+                + "; ".join(session.failures)
+            ],
+            "",
+        )
     return result_row("control", started, ["the wrong expectation passed"], "")
 
 
