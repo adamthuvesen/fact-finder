@@ -25,4 +25,4 @@ echo "Running setup checker (see .agents/docs/setup.md if anything fails)..."
 uv run python scripts/check_agent_setup.py || true
 
 echo ""
-echo "Done. Next: read .agents/docs/setup.md — Claude Code (`/mcp`), optional Codex (trust project + \`codex mcp\`), and per-bundle auth."
+echo "Done. Next: read .agents/docs/setup.md — Claude Code (\`/mcp\`), optional Codex (trust project + \`codex mcp\`), and per-bundle auth."

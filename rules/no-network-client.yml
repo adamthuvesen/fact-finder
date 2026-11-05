@@ -1,18 +1,23 @@
 id: no-network-client
 language: python
 severity: error
-message: "Network clients belong to src/fact_finder/google_api.py. Fix: call google_api, or add the request there."
+message: "Network clients, cloud SDKs, and warehouse drivers belong to src/fact_finder/google_api.py. Warehouses are reached through read-only MCP bundles. Fix: call google_api, or enable a source bundle."
 files:
   - src/**/*.py
   - scripts/**/*.py
   - evals/**/*.py
 ignores:
   - src/fact_finder/google_api.py
+utils:
+  banned-module:
+    regex: ^(socket|ssl|http\.client|urllib\.request|urllib3|requests|httpx|aiohttp|ftplib|smtplib|imaplib|poplib|xmlrpc\.client|google\.auth\.transport|google\.cloud|googleapiclient|snowflake|psycopg|psycopg2|boto3|botocore|databricks|duckdb|redshift_connector|pymysql|sqlalchemy)(\.|$)
 rule:
   any:
     - kind: import_statement
-      has: {kind: dotted_name, stopBy: end, regex: ^(socket|ssl|http\.client|urllib\.request|urllib3|requests|httpx|aiohttp|ftplib|smtplib|google\.auth\.transport)(\.|$)}
+      has: {kind: dotted_name, stopBy: end, matches: banned-module}
     - kind: import_from_statement
-      has: {field: module_name, regex: ^(socket|ssl|http\.client|urllib\.request|urllib3|requests|httpx|aiohttp|ftplib|smtplib|google\.auth\.transport)(\.|$)}
+      has: {field: module_name, matches: banned-module}
     - kind: import_from_statement
-      regex: ^from\s+(urllib|http|google\.auth)\s+import\b.*\b(request|client|transport)\b
+      all:
+        - has: {field: module_name, regex: ^(urllib|http|google\.auth|xmlrpc|google)$}
+        - has: {kind: dotted_name, stopBy: end, regex: ^(request|client|transport|cloud)$}

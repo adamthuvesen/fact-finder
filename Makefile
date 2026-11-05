@@ -1,6 +1,6 @@
 RUN := uv run --locked
 
-.PHONY: check fix quick verify audit lock lint types deps dead boundaries rules test workflows secrets vulnerabilities
+.PHONY: check fix quick verify slow audit lock lint types deps dead boundaries rules test workflows secrets vulnerabilities
 
 # Offline gate. CI runs the same targets.
 check: lock lint types deps dead boundaries rules test
@@ -17,6 +17,11 @@ quick:
 # Drives the CLI installed from a wheel. ARGS: all, list, control, or drive names.
 verify:
 	$(RUN) python .agents/skills/verify-fact-finder/verify $(ARGS)
+
+# Everything offline that check leaves out: every verify drive, then the control. CI runs it after check.
+slow:
+	$(MAKE) --no-print-directory verify ARGS=all
+	$(MAKE) --no-print-directory verify ARGS=control
 
 # Needs the network for the vulnerability database.
 audit: workflows secrets vulnerabilities

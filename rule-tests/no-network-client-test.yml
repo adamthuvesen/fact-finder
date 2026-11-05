@@ -2,7 +2,9 @@ id: no-network-client
 valid:
   - import urllib.parse
   - from urllib.parse import urlencode
+  - from urllib import parse
   - from http import HTTPStatus
+  - import google.auth
   - import json
 invalid:
   - import socket
@@ -11,4 +13,17 @@ invalid:
   - import requests
   - from httpx import Client
   - from urllib import request
+  - from urllib import parse, request as r
+  - |
+    from urllib import (
+        parse,
+        request,
+    )
+  - from http import client
   - from google.auth.transport.requests import Request
+  - from google.cloud import bigquery
+  - from google import cloud
+  - import snowflake.connector
+  - import psycopg
+  - import boto3
+  - import duckdb
