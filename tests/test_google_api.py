@@ -124,6 +124,13 @@ class TestAuthErrors:
         with pytest.raises(GoogleAuthError, match="Token refresh failed"):
             gsc_query(**GSC)
 
+    def test_offline_refresh_raises_google_api_error(self, _fake_credentials):
+        _fake_credentials.refresh.side_effect = google.auth.exceptions.TransportError(
+            "Failed to connect"
+        )
+        with pytest.raises(GoogleApiError, match="check the network"):
+            gsc_query(**GSC)
+
 
 class TestApiErrors:
     def test_http_error_raises_google_api_error(self):

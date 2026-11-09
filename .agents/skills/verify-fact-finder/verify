@@ -263,8 +263,10 @@ def control(run_dir: Path) -> dict[str, object]:
 
 
 def changed_drives() -> list[str]:
+    # origin/main first: after a commit on local main, merge-base with main is HEAD itself.
     main = (
-        git("for-each-ref", "--format=%(refname:short)", "refs/heads/main").strip() or "origin/main"
+        git("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/main").strip()
+        or "main"
     )
     base = git("merge-base", "HEAD", main).strip()
     files = set(git("diff", "--name-only", base).splitlines())

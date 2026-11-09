@@ -17,8 +17,9 @@ reads the `DELETE` in `SELECT 1 ->> DELETE FROM t` and `SELECT 1 DELETE FROM t` 
 or an alias. So `->>` must be followed by a literal, its JSON use. A bare statement keyword
 is rejected in any position. A column with such a name needs quotes or a table qualifier.
 
-This parser is defence in depth. It cannot detect `SELECT side_effect_proc()`:
-a function call looks the same whether or not the function writes. The read-only
+This parser is defence in depth. It rejects built-in functions with a known side effect,
+such as `setval` and `pg_terminate_backend`. It cannot detect `SELECT side_effect_proc()`:
+a user function call looks the same whether or not the function writes. The read-only
 role on the connection is the real guard.
 """
 
@@ -63,6 +64,23 @@ WRITE_NODES = (
     exp.Lock,
     exp.NextValueFor,
 )
+# Built-in functions that write, kill a session, or touch the server's files from a SELECT.
+SIDE_EFFECT_FUNCTIONS = frozenset(
+    {
+        "SETVAL",
+        "PG_TERMINATE_BACKEND",
+        "PG_CANCEL_BACKEND",
+        "PG_RELOAD_CONF",
+        "PG_ROTATE_LOGFILE",
+        "DBLINK_EXEC",
+        "LO_IMPORT",
+        "LO_EXPORT",
+        "LO_UNLINK",
+        "LO_CREATE",
+    }
+)
+# T-SQL table hints that take write locks, like FOR UPDATE.
+LOCK_HINTS = frozenset({"UPDLOCK", "XLOCK", "TABLOCKX", "HOLDLOCK"})
 USE_KINDS = frozenset({"WAREHOUSE", "DATABASE", "SCHEMA"})
 METADATA_PRAGMAS = frozenset(
     {
@@ -187,9 +205,19 @@ def _write_in_tree(statement: exp.Expr) -> str | None:
             return f"calls {function.name}"
         if function.name.upper() == "NEXTVAL":
             return "advances a sequence with NEXTVAL"
+        if function.name.upper() in SIDE_EFFECT_FUNCTIONS:
+            return f"calls {function.name}, which has a side effect"
     for column in statement.find_all(exp.Column):
         if column.table and column.name.upper() == "NEXTVAL":
             return "advances a sequence with NEXTVAL"
+    return _lock_hint(statement)
+
+
+def _lock_hint(statement: exp.Expr) -> str | None:
+    for hint in statement.find_all(exp.WithTableHint):
+        locks = {word.upper() for word in re.findall(r"\w+", hint.sql())} & LOCK_HINTS
+        if locks:
+            return f"takes a write lock with {min(locks)}"
     return None
 
 

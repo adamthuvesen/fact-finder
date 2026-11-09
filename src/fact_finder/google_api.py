@@ -60,6 +60,11 @@ def _load_credentials() -> google.auth.credentials.Credentials:
         raise GoogleAuthError(
             f"Token refresh failed: {exc}\n\nRe-authenticate with:\n  {_RE_AUTH_COMMAND}"
         ) from exc
+    except google.auth.exceptions.TransportError as exc:
+        raise GoogleApiError(
+            f"Could not reach Google to refresh the token: {exc}\n"
+            "Fix: check the network connection or VPN, then retry."
+        ) from exc
     return credentials
 
 
