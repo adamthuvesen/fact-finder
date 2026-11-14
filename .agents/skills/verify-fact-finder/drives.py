@@ -323,7 +323,7 @@ DRIVES = {
         (
             PKG + "research.py",
             PKG + "validation.py",
-            PKG + "evidence.py",
+            PKG + "evidence_*.py",
             PKG + "layout.py",
             PKG + "templates.py",
         ),
@@ -331,12 +331,18 @@ DRIVES = {
     ),
     "quick-answer": Drive(
         "an exploratory answer passes strict without review; write SQL blocks and --accept cannot override it",
-        (PKG + "validation.py", PKG + "templates.py", PKG + "readonly_sql.py"),
+        (
+            PKG + "validation.py",
+            PKG + "acceptance.py",
+            PKG + "overrides.py",
+            PKG + "templates.py",
+            PKG + "readonly_sql.py",
+        ),
         drive_quick_answer,
     ),
     "lorem-gate": Drive(
         "filler text and a non-independent reviewer fail strict validation",
-        (PKG + "validation.py", PKG + "evidence.py"),
+        (PKG + "validation.py", PKG + "evidence_*.py"),
         drive_lorem_gate,
     ),
     "sql-gate": Drive(

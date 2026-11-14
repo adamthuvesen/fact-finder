@@ -16,6 +16,7 @@ from support.cases import (
 )
 from support.checks import validate_case
 
+from fact_finder.acceptance import accept_findings
 from fact_finder.templates import (
     EXPLORATORY_LABEL,
     PLACEHOLDER,
@@ -24,11 +25,7 @@ from fact_finder.templates import (
     report_template,
     source_objects_template,
 )
-from fact_finder.validation import (
-    accept_findings,
-    assess_case,
-    parse_source_objects,
-)
+from fact_finder.validation import assess_case, parse_source_objects
 
 
 def build_case(tmp_path: Path, **artifacts: str) -> Path:

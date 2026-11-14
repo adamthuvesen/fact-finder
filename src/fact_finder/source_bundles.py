@@ -4,7 +4,7 @@ A bundle is one `<name>.toml`: what the source is, how it stays read-only, its s
 its setup steps. Bundles ship inside this package. A repo adds or overrides its own in
 `sources_dir` under `[tool.fact-finder]`, by default `examples/sources/`.
 
-`config/sources.json` says which sources a repo wants, and may be shared. `.research/wiring.json`
+`config/sources.json` names the sources a repo wants, and may be shared. `.research/wiring.json`
 is local, and says what research added to this machine's client files. `reconcile_clients` is the
 one path that brings those files in line with both, for every command that changes them. It writes
 the source of truth first, and a failed write restores every file.
@@ -25,8 +25,10 @@ from .feedback import problem, validation_problems
 from .io import read_text, write_documents, write_text
 from .layout import project_setting
 from .sources import (
+    BUILTIN_SOURCES,
     NAME_FIX,
     NAME_PATTERN,
+    USER_SOURCES_FILE,
     BundleFile,
     Category,
     Connector,
@@ -233,7 +235,7 @@ def reconcile_clients(repo_root: Path, document: SourcesFile) -> list[str]:
             actions.append(f"removed server '{wiring.server_name}' from all client configs")
     known = set(available_bundles(repo_root))
     support: dict[Path, str] = {}
-    for name in sorted(document.sources.keys() & known):
+    for name in sorted(set(document.sources) & known):
         bundle = load_bundle(repo_root, name)
         support |= _support_files(repo_root, bundle)
         if bundle.server is None:
@@ -277,12 +279,12 @@ def enable_bundle(repo_root: Path, name: str) -> list[str]:
         # A scaffold's control is not real yet, so wiring it would claim a read-only guard.
         raise SourceConfigError("\n".join(unfilled))
     document = load_sources_file(repo_root)
-    previous = document.sources.get(name)
-    document.sources[name] = bundle.spec
+    added = name not in document.sources
+    if added:
+        document.sources.append(name)
     actions = reconcile_clients(repo_root, document)
-    if previous != bundle.spec:
-        verb = "updated" if previous else "added"
-        actions.insert(0, f"{verb} source '{name}' in config/sources.json")
+    if added:
+        actions.insert(0, f"added source '{name}' to config/sources.json")
     return [
         *actions,
         f"next: run `research source show {name}` for credentials and read-only setup",
@@ -294,7 +296,7 @@ def disable_bundle(repo_root: Path, name: str) -> list[str]:
     document = load_sources_file(repo_root)
     if name not in document.sources:
         return []
-    del document.sources[name]
+    document.sources.remove(name)
     return [
         f"removed source '{name}' from config/sources.json",
         *reconcile_clients(repo_root, document),
@@ -311,13 +313,27 @@ def enabled_bundles(repo_root: Path) -> tuple[list[Bundle], list[str]]:
     )
 
 
+def load_registry(repo_root: Path) -> dict[str, SourceSpec]:
+    """Return the built-in sources and the spec of each enabled source, from its bundle."""
+    bundles, without_bundle = enabled_bundles(repo_root)
+    if without_bundle:
+        raise SourceConfigError(
+            problem(
+                f"enabled source {without_bundle[0]!r} has no bundle",
+                f"run `research source new {without_bundle[0]}`, or remove it",
+                file=USER_SOURCES_FILE,
+            )
+        )
+    return {**BUILTIN_SOURCES, **{bundle.name: bundle.spec for bundle in bundles}}
+
+
 def sql_backed_families(repo_root: Path) -> set[str]:
     """Return every known source whose spec says it answers through SQL."""
-    specs = {
-        **{name: load_bundle(repo_root, name).spec for name in available_bundles(repo_root)},
-        **load_sources_file(repo_root).sources,
+    return {
+        name
+        for name in available_bundles(repo_root)
+        if load_bundle(repo_root, name).spec.sql_backed
     }
-    return {name for name, spec in specs.items() if spec.sql_backed}
 
 
 def render_bundle_list(repo_root: Path) -> str:

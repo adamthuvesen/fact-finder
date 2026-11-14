@@ -1,8 +1,9 @@
 """The source registry: what each source is and how it stays read-only.
 
-Only web search is built in. Everything else comes from `config/sources.json`,
-which `research source enable` writes. The file is read on demand, so a malformed
-file produces one clean error instead of failing at import.
+Only web search is built in. `config/sources.json`, which `research source enable`
+writes, names the enabled sources, and each one's spec comes from its bundle. The
+file is read on demand, so a malformed file produces one clean error instead of
+failing at import.
 """
 
 from __future__ import annotations
@@ -149,7 +150,9 @@ class Wiring(StrictModel):
 
 
 class SourcesFile(StrictModel):
-    sources: dict[str, SourceSpec]
+    """The names of the enabled sources. Each spec lives in its bundle."""
+
+    sources: list[str]
 
 
 WEB_SEARCH = "web-search"
@@ -192,7 +195,7 @@ def user_sources_path(repo_root: Path) -> Path:
 def load_sources_file(repo_root: Path) -> SourcesFile:
     path = user_sources_path(repo_root)
     if not path.exists():
-        return SourcesFile(sources={})
+        return SourcesFile(sources=[])
     document = _parse_document(read_text(path), USER_SOURCES_FILE)
     for name in document.sources:
         if name in BUILTIN_SOURCES:
@@ -207,18 +210,7 @@ def load_sources_file(repo_root: Path) -> SourcesFile:
 
 
 def render_sources_file(document: SourcesFile) -> str:
-    return (
-        json.dumps(
-            document.model_dump(exclude_defaults=True),
-            indent=2,
-            ensure_ascii=False,
-        )
-        + "\n"
-    )
-
-
-def load_registry(repo_root: Path) -> dict[str, SourceSpec]:
-    return {**BUILTIN_SOURCES, **load_sources_file(repo_root).sources}
+    return json.dumps({"sources": sorted(set(document.sources))}, indent=2) + "\n"
 
 
 SENSITIVE_PATH_PARTS = frozenset(

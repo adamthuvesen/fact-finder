@@ -158,7 +158,7 @@ def test_lint_reports_a_broken_sources_file(repo_root: Path, capsys) -> None:
     assert main(["lint", str(sources)]) == 1
     assert "config/sources.json" in capsys.readouterr().out
 
-    sources.write_text('{"sources": {}}', encoding="utf-8")
+    sources.write_text('{"sources": []}', encoding="utf-8")
     assert main(["lint", str(sources)]) == 0
 
 

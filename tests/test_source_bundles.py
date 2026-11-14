@@ -92,7 +92,7 @@ def _deny(repo, path):
 def test_enable_generates_every_client_shape_from_one_definition(repo):
     sb.enable_bundle(repo, "foo")
 
-    assert _sources(repo)["foo"]["plan_line"] == "Foo for things."
+    assert _sources(repo) == ["foo"]
     assert _claude(repo)["foo"] == {"type": "http", "url": "https://foo.example/mcp"}
     assert _cursor(repo)["foo"] == {"url": "https://foo.example/mcp"}
     assert _codex(repo)["foo"]["url"] == "https://foo.example/mcp"
@@ -669,7 +669,7 @@ def _pull_disable(repo, name):
     """Do what a pull does: the source is gone, and the local client files are not."""
     path = repo / "config" / "sources.json"
     document = json.loads(path.read_text())
-    del document["sources"][name]
+    document["sources"].remove(name)
     path.write_text(json.dumps(document))
 
 
@@ -849,9 +849,7 @@ def _fresh_clone(repo, codex_entry):
         {**SERVER, "server_name": "bar", "url": "https://bar.example/mcp"},
     )
     (repo / "config").mkdir()
-    (repo / "config" / "sources.json").write_text(
-        json.dumps({"sources": {"foo": SPEC, "bar": SPEC}})
-    )
+    (repo / "config" / "sources.json").write_text(json.dumps({"sources": ["foo", "bar"]}))
     (repo / ".mcp.json").unlink()
     (repo / ".cursor" / "mcp.json").unlink()
     codex = repo / ".codex" / "config.toml"

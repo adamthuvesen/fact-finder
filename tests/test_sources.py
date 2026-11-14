@@ -7,15 +7,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import tomlkit
 from pydantic import ValidationError
 
 from fact_finder.cli import main
+from fact_finder.source_bundles import load_registry
 from fact_finder.sources import (
     BUILTIN_SOURCES,
     ServerDefinition,
     SourceConfigError,
     SourceSpec,
-    load_registry,
     source_constraints,
 )
 
@@ -29,19 +30,25 @@ VALID_SPEC = {
 }
 
 
-def _write_user_sources(root: Path, sources: dict[str, Any]) -> None:
+def _enable(root: Path, specs: dict[str, Any]) -> None:
+    """Write one bundle per spec and enable them all."""
+    bundles = root / "examples" / "sources"
+    bundles.mkdir(parents=True, exist_ok=True)
+    for name, spec in specs.items():
+        document = {"setup": "Read-only.", "source": spec}
+        (bundles / f"{name}.toml").write_text(tomlkit.dumps(document), encoding="utf-8")
     (root / "config").mkdir(exist_ok=True)
     (root / "config" / "sources.json").write_text(
-        json.dumps({"sources": sources}), encoding="utf-8"
+        json.dumps({"sources": list(specs)}), encoding="utf-8"
     )
 
 
-def test_registry_is_builtins_plus_the_user_file(tmp_path) -> None:
+def test_registry_is_builtins_plus_the_enabled_bundles(tmp_path) -> None:
     assert set(load_registry(tmp_path)) == set(BUILTIN_SOURCES)
 
-    _write_user_sources(tmp_path, {"zendesk": VALID_SPEC})
+    _enable(tmp_path, {"zendesk": VALID_SPEC})
 
-    assert "zendesk" in load_registry(tmp_path)
+    assert load_registry(tmp_path)["zendesk"].plan_line == VALID_SPEC["plan_line"]
 
 
 @pytest.mark.parametrize(
@@ -60,22 +67,31 @@ def test_registry_is_builtins_plus_the_user_file(tmp_path) -> None:
         ),
     ],
 )
-def test_user_file_rejects_a_bad_spec(tmp_path, bad_spec, match) -> None:
-    _write_user_sources(tmp_path, {"zendesk": bad_spec})
+def test_registry_rejects_a_bad_spec(tmp_path, bad_spec, match) -> None:
+    _enable(tmp_path, {"zendesk": bad_spec})
 
     with pytest.raises(SourceConfigError, match=match):
         load_registry(tmp_path)
 
 
+def test_registry_rejects_an_enabled_source_with_no_bundle(tmp_path) -> None:
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "sources.json").write_text('{"sources": ["zendesk"]}')
+
+    with pytest.raises(SourceConfigError, match="research source new zendesk"):
+        load_registry(tmp_path)
+
+
 def test_user_file_rejects_a_builtin_collision(tmp_path) -> None:
-    _write_user_sources(tmp_path, {"web-search": VALID_SPEC})
+    _enable(tmp_path, {"web-search": VALID_SPEC})
 
     with pytest.raises(SourceConfigError, match="redefines the built-in"):
         load_registry(tmp_path)
 
 
 def test_source_name_must_make_a_usable_identifier(tmp_path: Path) -> None:
-    _write_user_sources(tmp_path, {"Bad Name": VALID_SPEC})
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "sources.json").write_text('{"sources": ["Bad Name"]}')
 
     with pytest.raises(SourceConfigError, match="source name"):
         load_registry(tmp_path)

@@ -5,7 +5,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from .evidence import evidence_template
+from .evidence_models import evidence_template
 from .feedback import problem
 from .from_spec import load_from_spec_dir, replace_markdown_section
 from .io import extract_section, read_text, write_text
@@ -21,7 +21,8 @@ from .layout import (
     research_dir,
     source_objects_path,
 )
-from .sources import LOCAL_FAMILY, load_registry, source_constraints
+from .source_bundles import load_registry
+from .sources import LOCAL_FAMILY, source_constraints
 from .templates import (
     NO_SOURCE_FAMILIES,
     RESEARCH_SHAPE,

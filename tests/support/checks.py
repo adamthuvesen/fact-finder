@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fact_finder.evidence import evidence_findings
+from fact_finder.evidence_findings import evidence_findings
 from fact_finder.validation import assess_case
 
 

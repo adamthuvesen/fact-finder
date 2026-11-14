@@ -9,14 +9,16 @@ from datetime import date
 from pathlib import Path
 from typing import cast
 
+from .acceptance import assess_case_path
 from .agent_hooks import edited_files, hook_report
 from .doctor import run_doctor
-from .evidence import Evidence, Review, review_snapshot
+from .evidence_files import review_snapshot
+from .evidence_models import Evidence, Review
 from .feedback import is_problem, problem
 from .google_api import GoogleApiError, GoogleAuthError, ga4_report, gsc_query
 from .layout import find_repo_root, project_setting
 from .lint import lint_file, local_case_problems
-from .next_step import READ_FAILURES, case_status, next_for_case, next_for_repo
+from .next_step import case_status, next_for_case, next_for_repo
 from .repo_setup import setup_repo
 from .research import case_paths, create_manual, render_goal, resolve_case_path
 from .source_bundles import (
@@ -27,7 +29,7 @@ from .source_bundles import (
     scaffold_bundle,
 )
 from .sources import Client
-from .validation import GATE_LIMITS, Assessment, accept_findings, assess_case
+from .validation import READ_FAILURES
 
 DATE_ORDER = problem("--start-date is after --end-date", "swap the two dates")
 CONTRACT_DIR = Path(__file__).parent / "contract"
@@ -268,63 +270,16 @@ def _init_case(repo_root: Path, args: argparse.Namespace) -> int:
     return 0
 
 
-def _empty_assessment(error: str) -> Assessment:
-    return Assessment(rigour="decision", strict=True, errors=error.split("\n"), warnings=[])
-
-
-def _assess(repo_root: Path, args: argparse.Namespace) -> tuple[str, Assessment]:
-    """Validate a case, reporting any failure to read it as a validation error."""
-    try:
-        case_path = resolve_case_path(repo_root, args.case)
-        if args.accept is not None:
-            accept_findings(case_path, args.accept, pinned=args.pinned)
-        return str(case_path), assess_case(
-            case_path, strict_completion=args.strict, pinned=args.pinned
-        )
-    except READ_FAILURES as exc:
-        return args.case, _empty_assessment(str(exc))
-
-
 def _validate_command(repo_root: Path, args: argparse.Namespace) -> int:
     if (args.accept is not None or args.pinned) and not args.strict:
         raise ValueError(
             problem("--accept and --pinned need --strict", "add --strict to the command")
         )
-    case, result = _assess(repo_root, args)
-    if args.json:
-        print(
-            json.dumps(
-                {
-                    "case": case,
-                    "strict": args.strict,
-                    "rigour": result.rigour,
-                    "passed": not result.errors,
-                    "errors": result.errors,
-                    "warnings": result.warnings,
-                    "accepted": result.accepted,
-                    "label": result.label,
-                    "limits": GATE_LIMITS,
-                },
-                indent=2,
-            )
-        )
-        return 1 if result.errors else 0
-    if result.errors:
-        print("Validation failed:")
-        print("\n".join(result.errors))
-    if args.strict:
-        if result.warnings:
-            print("Warnings:")
-            print("\n".join(result.warnings))
-    elif result.warnings:
-        print(f"{len(result.warnings)} items remain for --strict to report.")
-    if result.errors:
-        return 1
-    print(f"Validation passed: {case}")
-    if args.strict:
-        print(result.label)
-        print(GATE_LIMITS)
-    return 0
+    case, result = assess_case_path(
+        repo_root, args.case, strict=args.strict, pinned=args.pinned, accept=args.accept
+    )
+    print(result.to_json(case) if args.json else result.render(case))
+    return 1 if result.errors else 0
 
 
 def _list_command(repo_root: Path, _args: argparse.Namespace) -> int:

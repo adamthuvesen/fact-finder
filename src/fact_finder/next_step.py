@@ -11,9 +11,8 @@ from .layout import brief_path
 from .research import case_paths
 from .sources import LOCAL_FAMILY
 from .templates import NO_SOURCE_FAMILIES
-from .validation import Assessment, assess_case
+from .validation import READ_FAILURES, Assessment, assess_case
 
-READ_FAILURES = (OSError, UnicodeError, ValueError, RecursionError)
 RUN = "uv run research"
 NOT_STARTED = "Executive Summary"
 DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}-")

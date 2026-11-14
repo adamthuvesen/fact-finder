@@ -8,12 +8,8 @@ from typing import Any
 import pytest
 from support.checks import validate_evidence
 
-from fact_finder.evidence import (
-    SCAFFOLD_COVERAGE_REASON,
-    Evidence,
-    evidence_template,
-    review_snapshot,
-)
+from fact_finder.evidence_files import review_snapshot
+from fact_finder.evidence_models import SCAFFOLD_COVERAGE_REASON, Evidence, evidence_template
 
 
 def _write_evidence(case: Path, evidence: dict[str, Any]) -> None:

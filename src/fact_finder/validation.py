@@ -23,29 +23,22 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, ValidationError
+from pydantic import ValidationError
 
-from .evidence import (
-    ACCEPTED_GAPS_END,
-    ACCEPTED_GAPS_START,
-    STALE_REVIEW,
-    Finding,
-    evidence_findings,
-    load_evidence,
-    without_accepted_gaps,
-)
-from .feedback import line_of, problem, validation_problems
-from .io import extract_section, read_text, write_documents
+from .evidence_files import load_evidence, without_accepted_gaps
+from .evidence_findings import STALE_REVIEW, Finding, evidence_findings
+from .feedback import line_of, problem
+from .io import extract_section, read_text
 from .layout import (
     brief_path,
     evidence_path,
-    local_today,
     notes_path,
     plan_path,
     queries_path,
     report_path,
     source_objects_path,
 )
+from .overrides import load_overrides, one_line
 from .readonly_sql import (
     ReadOnlySql,
     UnsafeSqlError,
@@ -53,7 +46,6 @@ from .readonly_sql import (
     locking_clause_is_the_problem,
 )
 from .source_bundles import sql_backed_families
-from .strict_model import StrictModel
 from .templates import (
     EXPLORATORY_LABEL,
     NO_SOURCE_FAMILIES,
@@ -67,6 +59,8 @@ GATE_LIMITS = (
     "A gate checks integrity and arithmetic. Semantic truth and reviewer independence "
     "cannot be proved by a gate; they require independent judgment."
 )
+# What reading a case can raise. Callers report these as findings, not tracebacks.
+READ_FAILURES = (OSError, UnicodeError, ValueError, RecursionError)
 MIN_SUBSTANTIVE_CONTENT_LENGTH = 60
 VALID_TEMPLATES = frozenset({"exploration", "root-cause", "comparison"})
 Rigour = Literal["exploratory", "decision"]
@@ -75,7 +69,6 @@ BLOCKS_AT_COMPLETION: dict[Rigour, frozenset[str]] = {
     "exploratory": frozenset({"answer", "wrong"}),
     "decision": frozenset({"answer", "wrong", "contract"}),
 }
-OVERRIDES_FILE = "overrides.json"
 SOURCE_OBJECTS = "source-objects.md"
 
 REQUIRED_FILES = {"brief.md": brief_path, "report.md": report_path}
@@ -108,18 +101,6 @@ SOURCE_OBJECT_BULLET = re.compile(r"(?m)^- +(.*(?:\n[ \t]+.*)*)")
 ACCESS_DATE = re.compile(r"\baccessed\s+(\d{4}-\d{2}-\d{2})\b", re.IGNORECASE)
 BACKTICKED = re.compile(r"`([^`]+)`")
 BARE_URL = re.compile(r"https?://\S+")
-
-
-class Override(StrictModel):
-    """A person's recorded decision to accept what a rigour check would block."""
-
-    reason: str = Field(min_length=1)
-    accepted_at: str
-    accepted: list[str]
-
-
-class OverridesFile(StrictModel):
-    overrides: list[Override]
 
 
 @dataclass(frozen=True)
@@ -564,18 +545,6 @@ def _all_findings(case_path: Path, rigour: Rigour, texts: dict[str, str]) -> lis
     return findings
 
 
-def _load_overrides(case_path: Path) -> list[Override]:
-    path = case_path / OVERRIDES_FILE
-    if not path.exists():
-        return []
-    try:
-        return OverridesFile.model_validate_json(read_text(path)).overrides
-    except ValidationError as exc:
-        raise ValueError(
-            "\n".join(validation_problems(exc, OVERRIDES_FILE, read_text(path)))
-        ) from exc
-
-
 @dataclass(frozen=True)
 class Assessment:
     rigour: Rigour
@@ -584,6 +553,10 @@ class Assessment:
     warnings: list[str]
     hard_errors: list[str] = dataclass_field(default_factory=list[str])
     accepted: dict[str, list[str]] = dataclass_field(default_factory=dict[str, list[str]])
+
+    @classmethod
+    def unreadable(cls, error: str, *, strict: bool) -> Assessment:
+        return cls(rigour="decision", strict=strict, errors=error.split("\n"), warnings=[])
 
     @property
     def review_is_stale(self) -> bool:
@@ -605,16 +578,41 @@ class Assessment:
         else:
             base = "Decision case: evidence checked and review fresh."
         gaps = [
-            f'Accepted: "{_one_line(finding)}" because {"; ".join(reasons)}.'
+            f'Accepted: "{one_line(finding)}" because {"; ".join(reasons)}.'
             for finding, reasons in self.accepted.items()
         ]
         return " ".join([base, *gaps])
 
+    def to_json(self, case: str) -> str:
+        return json.dumps(
+            {
+                "case": case,
+                "strict": self.strict,
+                "rigour": self.rigour,
+                "passed": not self.errors,
+                "errors": self.errors,
+                "warnings": self.warnings,
+                "accepted": self.accepted,
+                "label": self.label,
+                "limits": GATE_LIMITS,
+            },
+            indent=2,
+        )
 
-def _one_line(text: str, limit: int = 160) -> str:
-    """Shorten a finding for a label: what was accepted, without how to fix it."""
-    flat = " ".join(text.split(". Fix: ", maxsplit=1)[0].split())
-    return flat if len(flat) <= limit else f"{flat[:limit]}..."
+    def render(self, case: str) -> str:
+        lines: list[str] = []
+        if self.errors:
+            lines += ["Validation failed:", *self.errors]
+        if self.strict:
+            if self.warnings:
+                lines += ["Warnings:", *self.warnings]
+        elif self.warnings:
+            lines.append(f"{len(self.warnings)} items remain for --strict to report.")
+        if not self.errors:
+            lines.append(f"Validation passed: {case}")
+            if self.strict:
+                lines += [self.label, GATE_LIMITS]
+        return "\n".join(lines)
 
 
 def assess_case(
@@ -633,7 +631,7 @@ def assess_case(
         if pinned:
             blocking |= {"stale"}
     reasons: dict[str, list[str]] = {}
-    for override in _load_overrides(case_path):
+    for override in load_overrides(case_path):
         for message in override.accepted:
             reasons.setdefault(message, []).append(override.reason)
     errors: list[str] = []
@@ -658,58 +656,3 @@ def assess_case(
         hard_errors=hard_errors,
         accepted=accepted,
     )
-
-
-def _render_accepted_gaps(overrides: list[Override]) -> str:
-    lines = [
-        f"- {_one_line(message)} Reason: {override.reason} ({override.accepted_at})"
-        for override in overrides
-        for message in override.accepted
-    ]
-    return "\n".join(
-        [
-            ACCEPTED_GAPS_START,
-            "## Accepted Gaps",
-            "",
-            "A person accepted these. Validation did not pass them.",
-            "",
-            *lines,
-            ACCEPTED_GAPS_END,
-            "",
-        ]
-    )
-
-
-def accept_findings(case_path: Path, reason: str, *, pinned: bool = False) -> list[str]:
-    """Record a person's override of the current rigour blocks, in the case and its report.
-
-    Safety cannot be overridden. A repeat records the new reason for what it still covers.
-    """
-    text = reason.strip()
-    if not text:
-        raise ValueError(
-            problem("--accept has no reason", 'use --accept "<why a person accepts this>"')
-        )
-    current = assess_case(case_path, strict_completion=True, pinned=pinned)
-    accepted = [
-        *(error for error in current.errors if error not in current.hard_errors),
-        *current.accepted,
-    ]
-    if not accepted:
-        return []
-    overrides = [
-        *_load_overrides(case_path),
-        Override(reason=text, accepted_at=local_today().isoformat(), accepted=accepted),
-    ]
-    report = report_path(case_path)
-    body = without_accepted_gaps(read_text(report))
-    write_documents(
-        {
-            case_path / OVERRIDES_FILE: json.dumps(
-                OverridesFile(overrides=overrides).model_dump(), indent=2
-            )
-            + "\n",
-            report: f"{body}\n{_render_accepted_gaps(overrides)}",
-        }
-    )
-    return accepted
