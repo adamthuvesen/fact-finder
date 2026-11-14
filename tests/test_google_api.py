@@ -20,7 +20,6 @@ from fact_finder.google_api import (
 
 
 def _mock_urlopen(response_body: dict[str, Any]):
-    """Create a mock for urllib.request.urlopen that returns the given response."""
     cm = MagicMock()
     cm.__enter__ = MagicMock(return_value=cm)
     cm.__exit__ = MagicMock(return_value=False)
@@ -43,7 +42,6 @@ def _google_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _fake_credentials():
-    """Patch google.auth.default to return a fake credential with a valid token."""
     creds = MagicMock()
     creds.token = "fake-token-123"
     with patch(

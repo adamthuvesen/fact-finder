@@ -1,48 +1,44 @@
 setup = """
-**Server:** official Google Analytics MCP server
-([`googleanalytics/google-analytics-mcp`](https://github.com/googleanalytics/google-analytics-mcp))
-Runs over stdio via `pipx run analytics-mcp`. It wraps the live GA4 Data API
-(`run_report`, `run_realtime_report`, `run_funnel_report`) plus read-only Admin
-API calls.
+**Transport:** `cli` - the `research ga4` subcommand, not an MCP server. Enabling it
+registers the source for planning and prompting but wires no server into the MCP
+configs.
 
-**Read-only enforcement (`scope:analytics.readonly`):** the server is read-only
-by nature - Google states it serves *read* requests only and the sole OAuth scope
-is `analytics.readonly`, so it cannot edit GA4 configuration. The scope is the
-guarantee; there is no separate flag.
+**Read-only enforcement (`scope:analytics.readonly`):** the CLI authenticates with
+the **`analytics.readonly` OAuth scope**, which reads reports and cannot edit GA4
+configuration. The scope on the credential is the guarantee.
 
-1. `uv run research source enable ga4`. Verify the install command
-   against the upstream repo (it may publish as `pipx install google-analytics-mcp`).
-3. Authenticate with ADC scoped read-only:
+1. Run `uv run research source enable ga4`. No MCP config changes: there is no server.
+2. Authenticate with Application Default Credentials, requesting the read-only scope:
+
    ```bash
    gcloud auth application-default login \\
-     --scopes="https://www.googleapis.com/auth/analytics.readonly"
+     --scopes="https://www.googleapis.com/auth/analytics.readonly,https://www.googleapis.com/auth/cloud-platform"
    ```
-   or point `GOOGLE_APPLICATION_CREDENTIALS` at a service account granted Viewer
+
+   Or point `GOOGLE_APPLICATION_CREDENTIALS` at a service account granted Viewer
    on the GA4 property.
+3. Configure the property. There is no default. Set `GA4_PROPERTY_ID`, or
+   `ga4_property_id` under `[tool.fact-finder]` in `pyproject.toml`. The environment
+   variable wins. `GCP_QUOTA_PROJECT` is optional.
 
-## Notes
+## Use
 
-- Pass the GA4 property id in your query (the server resolves account/property
-  summaries); no fixed property env var is required.
-- For large properties the Data API samples/thresholds - if you need unsampled
-  data, query the GA4 → BigQuery export via the `bigquery` source instead.
+```bash
+research ga4 --start-date 2026-03-01 --end-date 2026-04-06 --dimensions date --metrics sessions
+```
+
+- `--limit` and `--offset` paginate. `--order-by <metric>` sorts descending.
+- For large properties the Data API samples and thresholds. For unsampled data,
+  query the GA4 to BigQuery export through the `bigquery` source.
 """
 
 [source]
 display_name = "GA4"
 category = "product-analytics"
-transport = "stdio"
-plan_line = "Google Analytics 4 for site analytics — page views, sessions, users, engagement, conversions."
-notes = "Query the GA4 Data API via the official Google Analytics MCP server (report-style queries: dimensions + metrics over a date range, plus realtime and funnel reports). Authenticated read-only with the analytics.readonly scope — it cannot edit GA4 configuration. Note GA4 sampling and thresholding on large properties; the BigQuery export is the unsampled alternative when available."
+transport = "cli"
+plan_line = "Google Analytics 4 site analytics through `research ga4`."
+notes = "Independently instrumented sessions, traffic mix, and funnel evidence. Inspect row counts, pagination, thresholds, sampling, attribution, and property time zone."
 
 [source.read_only_control]
 mechanism = "credential_scope"
 detail = "analytics.readonly"
-
-[server]
-server_name = "ga4"
-command = "pipx"
-args = [
-  "run",
-  "analytics-mcp",
-]

@@ -1,5 +1,3 @@
-"""Tests for `research source enable/disable/list` and the generated client configs."""
-
 from __future__ import annotations
 
 import json

@@ -238,9 +238,6 @@ def test_coverage_mismatch_warns(tmp_path: Path) -> None:
     assert any("Allowed Source Families" in warning for warning in warnings_of(case))
 
 
-# --- source-objects.md is parsed as structure ------------------------------------
-
-
 def test_source_objects_parse_into_locator_and_date() -> None:
     objects, errors = parse_source_objects(
         "# Source Objects\n\n"
@@ -281,9 +278,6 @@ def test_unlisted_evidence_locator_warns(tmp_path: Path) -> None:
     write_review(case)
 
     assert any("is not listed" in warning for warning in warnings_of(case))
-
-
-# --- SQL-backed families need a preserved query --------------------------------
 
 
 def _with_family(case: Path, family: str, status: str = "used") -> None:
@@ -337,9 +331,6 @@ def test_sql_backed_family_recorded_as_not_used_needs_no_query(tmp_path: Path) -
     write_review(case)
 
     assert validate_case(case, strict_completion=True) == []
-
-
-# --- Safety is hard. Rigour is a default a person can override. --------------------------
 
 
 EXPLORATORY_BRIEF = BRIEF.replace(

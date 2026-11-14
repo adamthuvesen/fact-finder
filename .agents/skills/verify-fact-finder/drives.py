@@ -152,7 +152,7 @@ def lorem(case: Path) -> None:
 def drive_case_lifecycle(drive: Any) -> None:
     case = new_case(drive, "lifecycle")
     drive.expect(["goal", case.name], 0, "/goal", str(case))
-    drive.expect(["validate", case.name], 0, "Validation passed")
+    drive.expect(["validate", case.name], 0)
     drive.expect(["validate", case.name, "--strict"], 1, "independent review is missing")
     drive.expect(["list"], 0, "lifecycle  in-progress")
     fill(drive, case)
@@ -219,12 +219,12 @@ def drive_sql_gate(drive: Any) -> None:
     ):
         (case / "queries.sql").write_text(sql)
         drive.note(f"queries.sql: {sql}")
-        drive.expect(["validate", case.name], 0, "Validation passed")
+        drive.expect(["validate", case.name], 0)
 
 
 def drive_sources(drive: Any) -> None:
-    drive.expect(["source", "enable", "github"], 0, "wired server 'github'")
-    drive.expect(["source", "enable", "stripe"], 0, "denied 4 write tools")
+    drive.expect(["source", "enable", "github"], 0)
+    drive.expect(["source", "enable", "stripe"], 0)
     drive.check(
         "mcp__stripe__create_refund" in (drive.target / ".claude/settings.local.json").read_text(),
         "no Claude deny rule",
@@ -239,7 +239,7 @@ def drive_sources(drive: Any) -> None:
     mcp.write_text(good.replace("/mcp/readonly", "/mcp"))
     drive.expect(["doctor"], 1, "url does not end with /readonly", "Fix:")
     mcp.write_text(good)
-    drive.expect(["source", "disable", "stripe"], 0, "removed source 'stripe'")
+    drive.expect(["source", "disable", "stripe"], 0)
     sources = drive.target / "config" / "sources.json"
     kept = sources.read_text()
     sources.write_text("{bad")

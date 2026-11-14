@@ -52,18 +52,17 @@ demo file needs a new independent review, because `test_validation.py` pins it.
 Each "Enforced by" cell cites `path::name` (a function or class the file defines) or a `make` target.
 `tests/test_docs_contract.py::test_enforced_rules_cite_real_checks` fails on anything else.
 
-| Rule | Enforced by | Added |
-| --- | --- | --- |
-| No agent SDK import or process spawn in `src/`, `evals/`, or `scripts/`. Exempt: `scripts/check_agent_setup.py` (client version probes), `tests/`, and the verify helper (it runs `git`, `uv`, and the built CLI, and stubs agent clients) | `make lint` (ruff TID251), `make rules` | 2026-11-04 |
-| Preserved SQL is read-only under every dialect reading | `tests/test_readonly_sql.py::test_rejected`, `tests/test_readonly_sql.py::test_writes_the_parser_reads_as_reads_are_rejected` | 2026-11-04 |
-| Write SQL, unreadable SQL, and out-of-case artifacts cannot be accepted | `tests/test_validation.py::test_write_sql_blocks_and_cannot_be_accepted`, `tests/test_gate_honesty.py::test_unreadable_queries_fail_closed`, `tests/test_validation.py::test_artifact_outside_the_case_blocks_and_cannot_be_accepted` | 2026-11-04 |
-| Each bundle meets a named read-only control, and enabled servers match it | `tests/test_readonly_contract.py::test_bundle_satisfies_its_declared_control`, `tests/test_doctor.py::test_removed_readonly_suffix_fails` | 2026-06-07 |
-| Every bundle's claude.ai connector write tools are denied in the shared `.claude/settings.json` | `tests/test_source_bundles.py::test_setup_denies_every_bundles_connector_writes_in_shared_settings` | 2026-11-06 |
-| Network clients, cloud SDKs, and warehouse drivers appear only in `src/fact_finder/google_api.py` | `make rules` | 2026-11-07 |
-| No `noqa` or per-file ignore turns off a TID251 ban outside the named owners | `make rules`, `tests/test_import_bans.py::test_only_named_owners_skip_the_import_bans`, `tests/test_import_bans.py::test_the_core_bans_stay_listed` | 2026-11-07 |
-| No permission-bypass flag ships | `tests/test_readonly_contract.py::test_no_permission_bypass_flag_ships_anywhere` | 2026-11-04 |
-| Layers hold, and models forbid unknown fields | `make boundaries`, `make lint` (ruff TID251 bans pydantic.BaseModel) | 2026-11-04 |
-| Instruction text stays under its limit, and doc links resolve | `tests/test_docs_contract.py::test_all_instruction_text_stays_under_the_limit`, `tests/test_docs_contract.py::test_relative_doc_links_resolve` | 2026-11-04 |
-| `make verify` can fail: its control asserts a wrong result and must observe FAIL | `.agents/skills/verify-fact-finder/verify::control` | 2026-11-06 |
-| No file downgrades strict type checking with a `# pyright:` mode comment, and every `# pyright: ignore` names a rule and a reason | `tests/test_strict_mode.py::test_no_file_downgrades_type_checking_mode` | 2026-11-07 |
-| A skipped, xfailed, or xpassed test fails the run | `tests/conftest.py::pytest_sessionfinish` | 2026-11-09 |
+| Rule | Enforced by |
+| --- | --- |
+| No agent SDK import or process spawn in `src/`, `evals/`, or `scripts/`. Exempt: `scripts/check_agent_setup.py` (client version probes), `tests/`, and the verify helper (it runs `git`, `uv`, and the built CLI, and stubs agent clients) | `make lint` (ruff TID251), `make rules` |
+| Preserved SQL is read-only under every dialect reading | `tests/test_readonly_sql.py::test_rejected`, `tests/test_readonly_sql.py::test_writes_the_parser_reads_as_reads_are_rejected` |
+| Write SQL, unreadable SQL, and out-of-case artifacts cannot be accepted | `tests/test_validation.py::test_write_sql_blocks_and_cannot_be_accepted`, `tests/test_gate_honesty.py::test_unreadable_queries_fail_closed`, `tests/test_validation.py::test_artifact_outside_the_case_blocks_and_cannot_be_accepted` |
+| Each bundle meets a named read-only control, and enabled servers match it | `tests/test_readonly_contract.py::test_bundle_satisfies_its_declared_control`, `tests/test_doctor.py::test_removed_readonly_suffix_fails` |
+| Every bundle's claude.ai connector write tools are denied in the shared `.claude/settings.json` | `tests/test_source_bundles.py::test_setup_denies_every_bundles_connector_writes_in_shared_settings` |
+| Network clients, cloud SDKs, and warehouse drivers appear only in `src/fact_finder/google_api.py` | `make rules` |
+| No `noqa` or per-file ignore turns off a TID251 ban outside the named owners | `make rules`, `tests/test_import_bans.py::test_only_named_owners_skip_the_import_bans`, `tests/test_import_bans.py::test_the_core_bans_stay_listed` |
+| No permission-bypass flag ships | `tests/test_readonly_contract.py::test_no_permission_bypass_flag_ships_anywhere` |
+| Layers hold, and models forbid unknown fields | `make boundaries`, `make lint` (ruff TID251 bans pydantic.BaseModel) |
+| Instruction text stays under its limit, and doc links resolve | `tests/test_docs_contract.py::test_all_instruction_text_stays_under_the_limit`, `tests/test_docs_contract.py::test_relative_doc_links_resolve` |
+| `make verify` can fail: its control asserts a wrong result and must observe FAIL | `.agents/skills/verify-fact-finder/verify::control` |
+| A skipped, xfailed, or xpassed test fails the run | `tests/conftest.py::pytest_sessionfinish` |
