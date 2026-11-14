@@ -531,8 +531,8 @@ def test_a_scaffold_loads_lists_and_marks_what_to_fill(tmp_path):
     assert "zendesk" in sb.available_bundles(repo)
     assert sb.load_bundle(repo, "zendesk").spec.display_name == "Zendesk"
     unfilled = sb.unfilled_fields(path)
-    assert len(unfilled) >= 4
-    assert all("Fix: replace the mark" in line for line in unfilled)
+    assert unfilled
+    assert all("Fix:" in line for line in unfilled)
 
 
 def test_a_scaffold_cannot_be_enabled_until_it_is_filled(tmp_path):

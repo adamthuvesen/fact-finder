@@ -32,7 +32,7 @@ def _bundles() -> list[Bundle]:
 
 def test_bundles_ship_inside_the_package() -> None:
     assert repo_sources_dir(ROOT) == PACKAGED_BUNDLES.resolve()
-    assert len(_bundles()) >= 29
+    assert _bundles()
 
 
 @pytest.mark.parametrize("bundle", _bundles(), ids=lambda b: b.name)

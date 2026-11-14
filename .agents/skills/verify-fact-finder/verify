@@ -231,6 +231,8 @@ def drive(name: str, run_dir: Path) -> dict[str, object]:
         DRIVES[name].run(session)
     except Exception as error:  # noqa: BLE001 - a crashed drive is a FAIL with its reason
         session.failures.append(f"drive crashed: {type(error).__name__}: {error}")
+    except SystemExit as early_exit:
+        session.failures.append(f"drive exited the process early (exit {early_exit.code!r})")
     return result_row(name, started, session.failures, DRIVES[name].proves)
 
 
