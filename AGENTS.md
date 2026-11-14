@@ -60,7 +60,7 @@ Each "Enforced by" cell cites `path::name` (a function or class the file defines
 | Each bundle meets a named read-only control, and enabled servers match it | `tests/test_readonly_contract.py::test_bundle_satisfies_its_declared_control`, `tests/test_doctor.py::test_removed_readonly_suffix_fails` | 2026-06-07 |
 | Every bundle's claude.ai connector write tools are denied in the shared `.claude/settings.json` | `tests/test_source_bundles.py::test_setup_denies_every_bundles_connector_writes_in_shared_settings` | 2026-11-06 |
 | Network clients, cloud SDKs, and warehouse drivers appear only in `src/fact_finder/google_api.py` | `make rules` | 2026-11-07 |
-| No `noqa` turns off a TID251 ban in `src/`, `scripts/`, or `evals/` | `make rules` | 2026-11-07 |
+| No `noqa` or per-file ignore turns off a TID251 ban outside the named owners | `make rules`, `tests/test_import_bans.py::test_only_named_owners_skip_the_import_bans`, `tests/test_import_bans.py::test_the_core_bans_stay_listed` | 2026-11-07 |
 | No permission-bypass flag ships | `tests/test_readonly_contract.py::test_no_permission_bypass_flag_ships_anywhere` | 2026-11-04 |
 | Layers hold, and models forbid unknown fields | `make boundaries`, `make lint` (ruff TID251 bans pydantic.BaseModel) | 2026-11-04 |
 | Instruction text stays under its limit, and doc links resolve | `tests/test_docs_contract.py::test_all_instruction_text_stays_under_the_limit`, `tests/test_docs_contract.py::test_relative_doc_links_resolve` | 2026-11-04 |

@@ -14,7 +14,7 @@ guarantee is *not passing that flag*, which is what this bundle ships.
 
 ## MotherDuck cloud (optional)
 
-Instead of `--db-path`, set a `motherduck_token` env var. **For true read-only,
+Set `--db-path` to `md:` (or `md:<database>`) and a `motherduck_token` env var. **For true read-only,
 use a read-scaling token** - a regular MotherDuck token effectively needs
 `--read-write`, so the token type is what enforces read-only in the cloud. Keep
 the token in your environment / secret manager, not in committed config.
@@ -42,4 +42,9 @@ args = [
 ]
 placeholders = [
   "/absolute/path/to/your.duckdb",
+]
+
+[server.alternatives]
+"/absolute/path/to/your.duckdb" = [
+  "md:[\\w-]*",
 ]

@@ -73,6 +73,8 @@ def test_extra_flag_breaking_arg_absent_fails(repo) -> None:
     [
         ("slack", "YOUR_SLACK_CLIENT_ID", "123.456"),
         ("duckdb", "/absolute/path/to/your.duckdb", "/data/real.duckdb"),
+        ("duckdb", "/absolute/path/to/your.duckdb", "md:"),
+        ("duckdb", "/absolute/path/to/your.duckdb", "md:analytics"),
         ("azure-devops", "YOUR_ADO_ORG", "contoso"),
         ("databricks", "YOUR-WORKSPACE", "acme"),
     ],
