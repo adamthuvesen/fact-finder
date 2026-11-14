@@ -320,6 +320,29 @@ def _leftover_checks(
     return checks
 
 
+def _link_checks(repo_root: Path) -> list[DoctorCheck]:
+    """Fail when a link that `research setup` made points at nothing, as after a venv Python bump."""
+    links = [
+        *sorted((repo_root / ".agents" / "skills").glob("*")),
+        *sorted((repo_root / ".agents" / "hooks").glob("*")),
+        repo_root / ".claude" / "skills",
+    ]
+    return [
+        DoctorCheck(
+            "setup links",
+            "fail",
+            problem(
+                f"{link.relative_to(repo_root).as_posix()} points at {link.readlink()}, "
+                "which does not exist",
+                "run `research setup` to relink it",
+                file=link.relative_to(repo_root).as_posix(),
+            ),
+        )
+        for link in links
+        if link.is_symlink() and not link.exists()
+    ]
+
+
 def run_doctor(repo_root: Path) -> list[DoctorCheck]:
     bundles, without_bundle = enabled_bundles(repo_root)
     try:
@@ -328,6 +351,7 @@ def run_doctor(repo_root: Path) -> list[DoctorCheck]:
     except SourceConfigError as exc:
         return [DoctorCheck("client config", "fail", str(exc))]
     checks = [
+        *_link_checks(repo_root),
         *_goals_checks(repo_root, clients),
         *_connector_checks(repo_root, clients),
     ]

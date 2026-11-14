@@ -341,3 +341,20 @@ def test_malformed_server_fields_fail_with_a_fix(
     assert "Fix:" in captured.out
     assert "Traceback" not in captured.out + captured.err
     assert {p: p.read_bytes() for p in repo.rglob("*") if p.is_file()} == before
+
+
+def test_doctor_fails_on_a_setup_link_left_dangling_by_a_python_bump(repo, capsys) -> None:
+    assert main(["setup"]) == 0
+    assert main(["doctor"]) == 0
+    skills = repo / ".agents" / "skills"
+    link = next(path for path in skills.iterdir() if path.is_symlink())
+    link.unlink()
+    link.symlink_to("../../.venv/lib/python3.13/site-packages/fact_finder/skills/" + link.name)
+    capsys.readouterr()
+
+    assert main(["doctor"]) == 1
+
+    out = capsys.readouterr().out
+    assert f".agents/skills/{link.name}" in out and "research setup" in out
+    assert main(["setup"]) == 0
+    assert main(["doctor"]) == 0

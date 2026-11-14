@@ -23,7 +23,9 @@ existing=$(printf '%s\n' "$changed" | while IFS= read -r file; do
   if [ -f "$file" ]; then printf '%s\n' "$file"; fi
 done)
 python_files=$(printf '%s\n' "$existing" | grep '\.py$')
-other_files=$(printf '%s\n' "$existing" | grep -v '\.py$')
+# An extensionless verify driver is Python. ruff takes it by name; basedpyright cannot.
+verify_scripts=$(printf '%s\n' "$existing" | grep -E '(^|/)\.agents/skills/[^/]+/verify$')
+other_files=$(printf '%s\n' "$existing" | grep -v '\.py$' | grep -vE '(^|/)\.agents/skills/[^/]+/verify$')
 
 if [ -z "$client" ] && [ -n "$python_files" ]; then
   for tool in ruff basedpyright; do
@@ -35,10 +37,14 @@ if [ -z "$client" ] && [ -n "$python_files" ]; then
 fi
 
 report=$(
+  ruff_files=$(printf '%s\n%s\n' "$python_files" "$verify_scripts" | grep .)
+  if [ -n "$ruff_files" ] && has ruff; then
+    printf '%s\n' "$ruff_files" | each ruff format --quiet
+    printf '%s\n' "$ruff_files" | each ruff check --quiet --output-format=concise
+  fi
   if [ -n "$python_files" ]; then
-    if has ruff; then
-      printf '%s\n' "$python_files" | each ruff format --quiet
-      printf '%s\n' "$python_files" | each ruff check --quiet --output-format=concise
+    if [ -f sgconfig.yml ] && has ast-grep; then
+      printf '%s\n' "$python_files" | each ast-grep scan --error --report-style short 2>/dev/null | grep 'error\['
     fi
     if has basedpyright; then
       types=$(printf '%s\n' "$python_files" | each basedpyright)

@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  check:
     runs-on: ubuntu-latest
 
     steps:
@@ -37,7 +37,7 @@ jobs:
       - run: make audit
 
   verify:
-    needs: test
+    needs: check
     runs-on: ubuntu-latest
 
     steps:

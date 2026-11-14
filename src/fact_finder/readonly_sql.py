@@ -72,6 +72,7 @@ SIDE_EFFECT_FUNCTIONS = frozenset(
         "PG_CANCEL_BACKEND",
         "PG_RELOAD_CONF",
         "PG_ROTATE_LOGFILE",
+        "DBLINK",
         "DBLINK_EXEC",
         "LO_IMPORT",
         "LO_EXPORT",

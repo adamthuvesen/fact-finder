@@ -333,6 +333,33 @@ def test_quick_handles_a_path_with_spaces(tmp_path: Path) -> None:
     assert "ruff format --quiet a b.py" in calls
 
 
+def test_quick_lints_an_extensionless_verify_driver(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    driver = repo / ".agents" / "skills" / "verify-x" / "verify"
+    driver.parent.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    driver.write_text("#!/usr/bin/env python3\nx = 1\n", encoding="utf-8")
+
+    _code, _out, calls = _run_script(tmp_path)
+
+    assert "ruff check --quiet --output-format=concise .agents/skills/verify-x/verify" in calls
+    assert "research lint .agents/skills/verify-x/verify" not in calls
+
+
+def test_quick_runs_the_repo_ast_grep_rules_only_where_they_exist(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+
+    assert "ast-grep scan" not in _run_script(tmp_path)[2]
+
+    (repo / "sgconfig.yml").write_text("ruleDirs: [rules]\n", encoding="utf-8")
+    (tmp_path / "calls.log").unlink()
+
+    assert "ast-grep scan --error --report-style short a.py" in _run_script(tmp_path)[2]
+
+
 def test_a_crashed_type_checker_is_not_a_pass(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

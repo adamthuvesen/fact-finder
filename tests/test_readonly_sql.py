@@ -30,6 +30,7 @@ from fact_finder.readonly_sql import (
         "SELECT setval('s', 1)",
         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity",
         "SELECT dblink_exec('dbname=x', 'DELETE FROM t')",
+        "SELECT dblink('dbname=x', 'DELETE FROM t')",
         "SELECT lo_import('/etc/passwd')",
         "SELECT * FROM t WITH (UPDLOCK)",
         "SELECT * FROM t WITH (NOLOCK, TABLOCKX)",
