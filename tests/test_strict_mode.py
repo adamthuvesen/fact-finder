@@ -1,5 +1,6 @@
-"""No file may turn strict type checking off, or ignore a type error without a rule and a reason."""
+"""No file may turn strict type checking off, ignore a type error without a rule and a reason, or skip a test without a reason."""
 
+import ast
 import os
 import re
 import subprocess
@@ -47,6 +48,8 @@ def test_no_file_downgrades_type_checking_mode() -> None:
     assert not found, (
         "a `# pyright:` comment turns strict mode off, or an ignore names no rule or reason: "
         + ", ".join(found)
+        + ". Fix: remove the comment and fix the type error, or write "
+        "`# pyright: ignore[<rule>] -- <reason>`"
     )
 
 
@@ -67,4 +70,91 @@ def test_the_scan_finds_a_downgrade_in_a_new_unstaged_file(tmp_path: Path) -> No
         "new.py:1",
         "reasonless.py:1",
         "script:2",
+    ]
+
+
+SKIP_MARKS = frozenset({"pytest.mark.skip", "pytest.mark.xfail", "pytest.skip", "unittest.skip"})
+KEYWORD_REASON_MARKS = frozenset({"pytest.mark.skip", "pytest.mark.xfail"})
+
+
+def dotted_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        owner = dotted_name(node.value)
+        return None if owner is None else f"{owner}.{node.attr}"
+    return None
+
+
+def has_reason(call: ast.Call, name: str) -> bool:
+    reason = next((keyword.value for keyword in call.keywords if keyword.arg == "reason"), None)
+    if reason is None and name not in KEYWORD_REASON_MARKS and call.args:
+        reason = call.args[0]
+    return (
+        isinstance(reason, ast.Constant)
+        and isinstance(reason.value, str)
+        and reason.value.strip() != ""
+    )
+
+
+def skips_without_reason(root: Path) -> list[str]:
+    found: list[str] = []
+    for path in repo_python_files(root):
+        tree = ast.parse(path.read_text(errors="replace"))
+        called: set[ast.AST] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = dotted_name(node.func)
+            if name in SKIP_MARKS:
+                called.add(node.func)
+                if not has_reason(node, name):
+                    found.append(f"{path.relative_to(root)}:{node.lineno}")
+        found.extend(
+            f"{path.relative_to(root)}:{node.lineno}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Attribute)
+            and node not in called
+            and dotted_name(node) in SKIP_MARKS
+        )
+    return found
+
+
+def test_every_skip_has_a_reason() -> None:
+    found = skips_without_reason(ROOT)
+    assert not found, (
+        "a skip or xfail has no reason string: "
+        + ", ".join(found)
+        + '. Fix: pass a literal reason, for example `pytest.mark.skip(reason="needs the network")`'
+    )
+
+
+def test_the_skip_scan_finds_a_skip_without_a_reason(tmp_path: Path) -> None:
+    """A scan that finds nothing passes, so prove it still finds known cases."""
+    env = {name: value for name, value in os.environ.items() if not name.startswith("GIT_")}
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=env, check=True)
+    (tmp_path / "bare.py").write_text(
+        "import pytest\n\n@pytest.mark.skip\ndef test_a() -> None: ...\n"
+    )
+    (tmp_path / "empty.py").write_text(
+        'import pytest\n\n@pytest.mark.xfail(reason="")\ndef test_b() -> None: ...\n'
+    )
+    (tmp_path / "bare_call.py").write_text("import pytest\n\npytest.skip()\n")
+    (tmp_path / "unittest_bare.py").write_text(
+        "import unittest\n\n@unittest.skip\ndef test_c(): ...\n"
+    )
+    (tmp_path / "fine.py").write_text(
+        "import pytest\nimport unittest\n\n"
+        '@pytest.mark.skip(reason="needs the network")\n'
+        "def test_d() -> None: ...\n"
+        'pytest.skip("needs a GPU")\n'
+        '@unittest.skip("unused")\n'
+        "def test_e(): ...\n"
+    )
+
+    assert sorted(skips_without_reason(tmp_path)) == [
+        "bare.py:3",
+        "bare_call.py:3",
+        "empty.py:3",
+        "unittest_bare.py:3",
     ]

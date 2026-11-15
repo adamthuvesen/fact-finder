@@ -29,11 +29,15 @@ def test_only_named_owners_skip_the_import_bans() -> None:
     ignores = cast("dict[str, list[str]]", _ruff_lint()["per-file-ignores"])
     skipping = {path for path, rules in ignores.items() if any(r.startswith("TID") for r in rules)}
     assert skipping <= BAN_OWNERS, (
-        f"these files skip the TID251 bans: {sorted(skipping - BAN_OWNERS)}. "
-        "Fix: remove the banned import instead of the ban."
+        f"pyproject.toml [tool.ruff.lint.per-file-ignores]: these files skip the TID251 bans: "
+        f"{sorted(skipping - BAN_OWNERS)}. Only BAN_OWNERS in tests/test_import_bans.py may. "
+        "Fix: remove the TID entry and remove the banned import instead."
     )
 
 
 def test_the_core_bans_stay_listed() -> None:
     banned = set(cast("dict[str, object]", _ruff_lint()["flake8-tidy-imports"]["banned-api"]))
-    assert banned >= REQUIRED_BANS, f"bans removed: {sorted(REQUIRED_BANS - banned)}"
+    assert banned >= REQUIRED_BANS, (
+        f"pyproject.toml [tool.ruff.lint.flake8-tidy-imports.banned-api]: core bans removed: "
+        f"{sorted(REQUIRED_BANS - banned)}. Fix: restore each ban with its msg."
+    )

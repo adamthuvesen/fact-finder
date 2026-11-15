@@ -180,7 +180,7 @@ def test_a_bad_bundle_names_its_line_and_fix(repo_root: Path, capsys) -> None:
     [
         ("import subprocess\n", "Fix: remove the call"),
         ("import openai\n", "Fix: remove the import"),
-        ("from pydantic import BaseModel\n", "Fix: subclass strict_model.StrictModel"),
+        ("from pydantic import BaseModel\n", "Fix: subclass fact_finder.strict_model.StrictModel"),
     ],
 )
 def test_ruff_bans_name_their_fix(source: str, fix: str) -> None:

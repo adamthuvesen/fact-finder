@@ -3,6 +3,8 @@
 `fact-finder` is a research kit for bounded investigations run inside a native
 agent goal. This file holds project facts. It is short because checks enforce the rest.
 
+Domain terms are in `GLOSSARY.md`. A change that adds, renames, or redefines a term updates it in the same commit.
+
 - Next step on any case: `uv run research next [case]`
 - Research method and evidence: `uv run research contract method|evidence`
 - Modules and boundaries: [.agents/docs/architecture.md](.agents/docs/architecture.md)
@@ -66,3 +68,5 @@ Each "Enforced by" cell cites `path::name` (a function or class the file defines
 | Instruction text stays under its limit, and doc links resolve | `tests/test_docs_contract.py::test_all_instruction_text_stays_under_the_limit`, `tests/test_docs_contract.py::test_relative_doc_links_resolve` |
 | `make verify` can fail: its control asserts a wrong result and must observe FAIL | `.agents/skills/verify-fact-finder/verify::control` |
 | A skipped, xfailed, or xpassed test fails the run | `tests/conftest.py::pytest_sessionfinish` |
+| Tests never sleep or read elapsed time: a sleep is slow and flaky, so wait on an event or inject a fake clock | `make lint` (ruff TID251; the banned calls are in tests/ruff.toml) |
+| A test never skips or xfails without a literal reason string | `tests/test_strict_mode.py::test_every_skip_has_a_reason` |

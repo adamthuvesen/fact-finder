@@ -1,0 +1,11 @@
+# This table replaces the root banned-api for tests, so only the clock bans below fire here.
+extend = "../pyproject.toml"
+# Same first-party roots as the root config, so I001 still sorts fact_finder as first-party.
+src = ["..", "../src"]
+
+[lint.flake8-tidy-imports.banned-api]
+"time.sleep".msg = "A test that sleeps is slow and flaky. Fix: wait on an event, or inject a fake clock."
+"asyncio.sleep".msg = "A test that sleeps is slow and flaky. Fix: wait on an event, or inject a fake clock."
+"time.time".msg = "A test that measures elapsed time is flaky. Fix: inject a fake clock, or assert on the value the code returns."
+"time.perf_counter".msg = "A test that measures elapsed time is flaky. Fix: inject a fake clock, or assert on the value the code returns."
+"time.monotonic".msg = "A test that measures elapsed time is flaky. Fix: inject a fake clock, or assert on the value the code returns."

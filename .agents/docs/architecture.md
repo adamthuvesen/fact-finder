@@ -4,7 +4,8 @@
 owns everything around it.
 
 `pyproject.toml` lists the module layers, and `make boundaries` enforces them. Skills, bundles, hooks,
-and the contract are package data, so a consumer gets them from its pin.
+and the contract are package data, so a consumer gets them from its pin. Consumer code imports only
+`fact_finder.api`.
 
 ## Source boundary
 
@@ -27,8 +28,9 @@ the real guard.
 
 ## Validation
 
-Each finding has a kind, and `validation.assess_case` decides what blocks. `feedback.problem` renders
-every message in one format.
+Each finding has a kind, and `validation.assess_case` decides what blocks. `evidence_findings` reads
+the evidence contract through `evidence_files`, which loads `evidence_models`. `acceptance` records a
+person's override in `overrides.json`. `feedback.problem` renders every message in one format.
 
 ## Deliberate omissions
 

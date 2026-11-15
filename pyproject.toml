@@ -74,49 +74,49 @@ ignore = [
 ]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"anthropic".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
-"claude_agent_sdk".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
-"claude_code_sdk".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
-"codex".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
-"openai".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
-"openai_agents".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents."
-"subprocess".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"multiprocessing".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"pty".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"asyncio.create_subprocess_exec".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"asyncio.create_subprocess_shell".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.system".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.popen".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.fork".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.forkpty".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.posix_spawn".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.posix_spawnp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.spawnl".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.spawnle".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.spawnlp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.spawnv".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.spawnve".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.spawnvp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.execl".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.execv".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.execve".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.execvp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"concurrent.futures.ProcessPoolExecutor".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"concurrent.futures.process".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.execle".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.execlp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.execlpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.execvpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.spawnlpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"os.spawnvpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"asyncio".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"pexpect".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"plumbum".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"sh".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"invoke".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"webbrowser".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from make or a hook script."
-"importlib.import_module".msg = "No dynamic import: it hides the bans above. Fix: write a plain import statement."
-"pydantic.BaseModel".msg = "Plain BaseModel allows unknown fields. Fix: subclass strict_model.StrictModel."
+"anthropic".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"claude_agent_sdk".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"claude_code_sdk".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"codex".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"openai".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"openai_agents".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"subprocess".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"multiprocessing".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"pty".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"asyncio.create_subprocess_exec".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"asyncio.create_subprocess_shell".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.system".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.popen".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.fork".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.forkpty".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.posix_spawn".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.posix_spawnp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnl".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnle".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnlp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnv".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnve".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnvp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execl".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execv".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execve".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execvp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"concurrent.futures.ProcessPoolExecutor".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"concurrent.futures.process".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execle".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execlp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execlpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execvpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnlpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnvpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"asyncio".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"pexpect".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"plumbum".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"sh".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"invoke".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"webbrowser".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"importlib.import_module".msg = "No dynamic import: it hides the other import bans. Fix: write a plain import statement at the top of the module."
+"pydantic.BaseModel".msg = "Plain BaseModel allows unknown fields. Fix: subclass fact_finder.strict_model.StrictModel from src/fact_finder/strict_model.py."
 
 [tool.ruff.lint.per-file-ignores]
 # The CLI's job is to print.
@@ -126,7 +126,7 @@ ignore = [
 # This script probes installed clients on purpose, with fixed arguments.
 "scripts/check_agent_setup.py" = ["S603", "TID251"]
 "src/fact_finder/strict_model.py" = ["TID251"]
-"tests/**" = ["S101", "PLR0917", "S603", "S607", "ANN", "ARG", "PLC0415", "SLF001", "FBT", "T20", "TRY", "PTH123", "S105", "S108", "TID251"]
+"tests/**" = ["S101", "PLR0917", "S603", "S607", "ANN", "ARG", "PLC0415", "SLF001", "FBT", "T20", "TRY", "PTH123", "S105", "S108"]
 
 [tool.basedpyright]
 pythonVersion = "3.14"
@@ -178,12 +178,12 @@ sources_dir = "src/fact_finder/bundles"
 root_package = "fact_finder"
 
 [[tool.importlinter.contracts]]
-name = "cli above domain above I/O; nothing imports cli. Fix: move the import or the code down a layer; the layers are listed in pyproject.toml"
+name = "A module imports only lower layers, and nothing imports cli. Fix: move shared code down a layer in pyproject.toml"
 type = "layers"
 containers = ["fact_finder"]
 exhaustive = true
 layers = [
-    "__main__",
+    "__main__ | api",
     "cli",
     "next_step | lint | repo_setup | acceptance",
     "research | validation | doctor",

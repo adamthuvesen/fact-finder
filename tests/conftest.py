@@ -39,6 +39,7 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
 def pytest_terminal_summary(terminalreporter: pytest.TerminalReporter) -> None:
     for test in UNPROVEN:
         terminalreporter.write_line(
-            f"{test}: a test that does not run proves nothing. Make it pass or remove it.",
+            f"{test}: a skipped or xfail test does not run, so it proves nothing. "
+            "Fix: make it pass, or remove it.",
             red=True,
         )
