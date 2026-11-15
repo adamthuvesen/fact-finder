@@ -1,6 +1,5 @@
 # OS / editor / tooling artifacts
 .DS_Store
-.python-version
 .venv/
 .pytest_cache/
 .ruff_cache/
@@ -20,12 +19,19 @@ research/
 # Personal, per-machine Claude settings
 .claude/settings.local.json
 
-# Local-only per-tool MCP configs, created by `research source enable`
-.cursor/
-.codex/
+# Local-only per-tool MCP configs, created by `research source enable`. The edit hooks are shared.
+.mcp.json
+.cursor/*
+!.cursor/hooks.json
+.codex/*
+!.codex/hooks.json
 
-# User-defined sources (copy config/sources.json.example to start)
 config/sources.json
+# Copied from the bundle by `research source enable snowflake`
+config/snowflake-mcp-tools.yaml
+
+# Verification runs (.agents/skills/verify-fact-finder)
+.verify/
 
 # Agent docs — only allow curated paths under .agents/docs/
 .agents/docs/*

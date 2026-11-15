@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "hooks": {
+    "postToolUse": [
+      {
+        "command": "sh .agents/hooks/report-edit.sh cursor",
+        "matcher": "Write"
+      }
+    ]
+  }
+}

@@ -44,6 +44,10 @@ Decide whether to revert the business-hours schedule for large warehouse exports
 
 All external systems are read-only. Do not send messages, change experiments, update documents, or write to data stores.
 
+## Allowed Source Families
+
+local
+
 ## Known Confounders
 
 - Partial-week rows near window edges can blur pre/post comparisons.

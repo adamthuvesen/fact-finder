@@ -1,0 +1,11 @@
+id: no-dynamic-import
+language: python
+severity: error
+message: "__import__ hides imports from the ruff banned-api list. Fix: write a plain import statement."
+files:
+  - src/**/*.py
+  - scripts/**/*.py
+  - evals/**/*.py
+rule:
+  kind: call
+  has: {field: function, regex: ^(__import__|builtins\.__import__)$}

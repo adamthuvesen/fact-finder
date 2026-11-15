@@ -1,0 +1,39 @@
+setup = """
+**Server:** official Atlassian remote MCP server - hosted at
+`https://mcp.atlassian.com/v1/mcp/authv2` (OAuth 2.1). The **same server as the Jira
+bundle** - it covers Confluence and Jira together.
+
+**Read-only enforcement (`credential-only`):** the Atlassian server has **no
+read-only flag** and can create/edit pages and comment if the connected account can.
+Read-only is enforced entirely by the **account you connect** - provision a
+**view-only Atlassian account** with Confluence read access (Browse/View; no
+add/edit/comment). This is the only guardrail, which is why the source is
+`credential-only`.
+
+1. `uv run research source enable confluence`. **If you already enabled the Jira
+   bundle, you're connected to the same Atlassian server** - you can reuse a single
+   server entry (e.g. name it `atlassian`) and skip adding a second.
+3. Authenticate via `/mcp` (Claude) or Settings → MCP (Cursor); `codex mcp login
+   confluence`. Sign in as the view-only account.
+
+## Notes
+
+- Covers spaces, pages (content as Markdown), CQL search, page history, comments.
+- Community alternative `sooperset/mcp-atlassian` offers a real `READ_ONLY_MODE=true`
+  flag if you prefer server-level enforcement over an account-scoped one.
+"""
+
+[source]
+display_name = "Confluence"
+category = "work-context"
+transport = "http-oauth"
+plan_line = "Confluence for wiki spaces, pages, and curated internal documentation."
+notes = "Search Confluence spaces and pages (CQL search), read page content, history, and comments via the Atlassian remote MCP server. Good for curated docs, runbooks, RFCs, and decision records. Read-only is enforced by a view-only Atlassian account — the server itself has no read-only flag; never create, edit, or comment on pages."
+
+[source.read_only_control]
+mechanism = "credential"
+detail = "account you connect"
+
+[server]
+server_name = "confluence"
+url = "https://mcp.atlassian.com/v1/mcp/authv2"

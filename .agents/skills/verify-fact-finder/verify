@@ -1,0 +1,350 @@
+#!/usr/bin/env python3
+"""Drive the `research` CLI, installed from a wheel, offline in a throwaway HOME and consumer repo."""
+
+from __future__ import annotations
+
+import contextlib
+import fnmatch
+import hashlib
+import json
+import os
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from drives import DRIVES, EVERY_DRIVE, SMOKE, lorem, new_case
+
+REPO = Path(__file__).resolve().parents[3]
+# Machine-global and agent or network tools. A call is logged, and the run fails.
+# fmt: off
+TRIPWIRED = ("launchctl", "defaults", "brew", "security", "op", "crontab", "systemctl",
+             "claude", "codex", "cursor-agent", "npx", "uvx", "curl", "wget", "gcloud", "snow")
+# fmt: on
+COMMAND_TIMEOUT = 30
+SECRET_MARKERS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
+
+SCRATCH = Path(tempfile.mkdtemp(prefix="verify-fact-finder-"))
+VENV = SCRATCH / "venv"
+RESEARCH = VENV / "bin" / "research"
+TRIPWIRE = SCRATCH / "tripwire"
+TRIPWIRE_LOG = SCRATCH / "tripwire.log"
+LIVE_GROUPS: set[int] = set()
+
+
+def git(*args: str) -> str:
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return subprocess.run(
+        ["git", *args], cwd=REPO, env=env, check=True, capture_output=True, text=True
+    ).stdout
+
+
+def fingerprint() -> str:
+    parts = [git("rev-parse", "HEAD"), git("diff", "HEAD")]
+    for name in sorted(git("ls-files", "--others", "--exclude-standard").splitlines()):
+        path = REPO / name
+        parts.append(name + (path.read_text(errors="replace") if path.is_file() else ""))
+    return hashlib.sha256("".join(parts).encode()).hexdigest()
+
+
+def child_env(home: Path) -> dict[str, str]:
+    return {
+        "HOME": str(home),
+        "XDG_CONFIG_HOME": str(home / ".config"),
+        "XDG_CACHE_HOME": str(home / ".cache"),
+        "XDG_DATA_HOME": str(home / ".local" / "share"),
+        "PATH": f"{TRIPWIRE}:{VENV / 'bin'}:/usr/bin:/bin",
+        "TRIPWIRE_LOG": str(TRIPWIRE_LOG),
+        "NO_COLOR": "1",
+    }
+
+
+def run(
+    argv: list[str], cwd: Path, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
+    """Run in a new process group. Kill the group on timeout, or on exit through cleanup()."""
+    proc = subprocess.Popen(
+        argv,
+        cwd=cwd,
+        env=env,
+        start_new_session=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    LIVE_GROUPS.add(proc.pid)
+    try:
+        out, err = proc.communicate(timeout=COMMAND_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        os.killpg(proc.pid, signal.SIGKILL)
+        out, err = proc.communicate()
+        err += f"\n[verify] killed after {COMMAND_TIMEOUT}s"
+    finally:
+        LIVE_GROUPS.discard(proc.pid)
+    return subprocess.CompletedProcess(argv, proc.returncode, out, err)
+
+
+class Session:
+    """One drive: a fresh HOME and consumer repo, and a log of every command."""
+
+    def __init__(self, name: str, run_dir: Path) -> None:
+        root = SCRATCH / name
+        self.home = root / "home"
+        self.target = root / "consumer"
+        self.venv = VENV
+        self.home.mkdir(parents=True)
+        self.target.mkdir()
+        (self.target / "pyproject.toml").write_text(
+            "[project]\nname = 'consumer'\n\n[tool.fact-finder]\n"
+        )
+        self.log = run_dir / f"{name}.log"
+        self.failures: list[str] = []
+
+    def expect(
+        self, args: list[str], code: int, *contains: str, forbid: tuple[str, ...] = ()
+    ) -> str:
+        result = run([str(RESEARCH), *args], self.target, child_env(self.home))
+        output = result.stdout + result.stderr
+        with self.log.open("a") as log:
+            log.write(f"$ research {' '.join(args)}\nexit {result.returncode}\n{output}\n")
+        shown = f"`research {' '.join(args)}`"
+        problems = [f"output lacks {s!r}" for s in contains if s not in output]
+        problems += [f"output has {s!r}" for s in forbid if s in output]
+        if result.returncode != code:
+            problems.insert(0, f"expected exit {code}, got {result.returncode}")
+        self.failures += [f"{shown}: {problem}" for problem in problems]
+        return result.stdout
+
+    def note(self, text: str) -> None:
+        with self.log.open("a") as log:
+            log.write(f"# {text}\n")
+
+    def check(self, condition: bool, message: str) -> None:
+        if not condition:
+            self.failures.append(message)
+
+
+def make_run_dir() -> Path:
+    dirty = "-dirty" if git("status", "--porcelain").strip() else ""
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    sha7 = git("rev-parse", "--short=7", "HEAD").strip()
+    path = REPO / ".verify" / "runs" / f"{stamp}-{sha7}{dirty}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.mkdir()
+    return path
+
+
+def file_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else "absent"
+
+
+def repo_state() -> dict[str, str]:
+    """HEAD, the branch, git config and hooks, and every changed, untracked, or ignored path.
+
+    Changed and untracked files compare by content. Ignored files compare by size and mtime,
+    because `.venv` holds too many files to hash.
+    """
+    common = (REPO / git("rev-parse", "--git-common-dir").strip()).resolve()
+    state = {".git/config": file_digest(common / "config")}
+    state |= {f".git/hooks/{hook.name}": file_digest(hook) for hook in (common / "hooks").glob("*")}
+    status = git("status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all", "--ignored")
+    entries = iter(status.split("\0"))
+    for entry in entries:
+        if entry.startswith("# branch."):
+            key, _, value = entry.removeprefix("# ").partition(" ")
+            state[key] = value
+            continue
+        if not entry or entry.startswith("#"):
+            continue
+        kind = entry[0]
+        fields = {"1": 8, "2": 9, "u": 10}.get(kind)
+        path = entry.split(" ", fields)[fields] if fields else entry[2:]
+        if kind == "2":
+            next(entries)
+        if path.startswith(".verify/") or "__pycache__" in path.split("/"):
+            continue
+        target = REPO / path
+        if kind == "!":
+            info = target.lstat()
+            state[path] = f"ignored:{info.st_size}:{info.st_mtime_ns}"
+        else:
+            state[path] = f"{entry.split(' ', 2)[1] if fields else kind}:{file_digest(target)}"
+    return state
+
+
+def preflight(run_dir: Path) -> None:
+    """Build a wheel from this checkout, install it alone, and prove the CLI comes from it."""
+    TRIPWIRE.mkdir()
+    for name in TRIPWIRED:
+        stub = TRIPWIRE / name
+        stub.write_text(f'#!/bin/sh\necho "{name} $*" >> "$TRIPWIRE_LOG"\nexit 127\n')
+        stub.chmod(0o755)
+    wheel_dir = SCRATCH / "dist"
+    for argv in (
+        ["uv", "build", "--wheel", "--quiet", "--out-dir", str(wheel_dir)],
+        ["uv", "venv", "--quiet", str(VENV)],
+    ):
+        result = run(argv, REPO)
+        if result.returncode != 0:
+            sys.exit(f"preflight: `{' '.join(argv)}` failed: {result.stderr.strip()}")
+    wheel = next(wheel_dir.glob("*.whl"))
+    python = str(VENV / "bin" / "python")
+    result = run(["uv", "pip", "install", "--quiet", "--python", python, str(wheel)], REPO)
+    if result.returncode != 0:
+        sys.exit(f"preflight: wheel install failed: {result.stderr.strip()}")
+    env = child_env(SCRATCH)
+    probe = run([python, "-c", "import fact_finder; print(fact_finder.__file__)"], SCRATCH, env)
+    location = Path(probe.stdout.strip())
+    if not RESEARCH.exists() or not location.is_relative_to(VENV):
+        sys.exit(
+            f"preflight: the CLI does not come from the wheel venv ({location or probe.stderr.strip()})"
+        )
+    redacted = {
+        k: ("<redacted>" if any(m in k for m in SECRET_MARKERS) else v) for k, v in env.items()
+    }
+    (run_dir / "preflight.json").write_text(
+        json.dumps({"wheel": wheel.name, "package": str(location), "env": redacted}, indent=2)
+    )
+
+
+def result_row(
+    name: str, started: float, failures: list[str], passed_detail: str
+) -> dict[str, object]:
+    return {
+        "drive": name,
+        "result": "FAIL" if failures else "PASS",
+        "seconds": round(time.monotonic() - started, 1),
+        "detail": "; ".join(failures) or passed_detail,
+    }
+
+
+def drive(name: str, run_dir: Path) -> dict[str, object]:
+    started = time.monotonic()
+    session = Session(name, run_dir)
+    try:
+        DRIVES[name].run(session)
+    except Exception as error:  # noqa: BLE001 - a crashed drive is a FAIL with its reason
+        session.failures.append(f"drive crashed: {type(error).__name__}: {error}")
+    except SystemExit as early_exit:
+        session.failures.append(f"drive exited the process early (exit {early_exit.code!r})")
+    return result_row(name, started, session.failures, DRIVES[name].proves)
+
+
+# The control passes only when strict validation refuses the lorem case with the expected output
+# and the planted exit code is the one thing that fails.
+CONTROL_FAILURE = "`research validate {case} --strict`: expected exit 0, got 1"
+
+
+def control(run_dir: Path) -> dict[str, object]:
+    """Assert that the lorem case passes strict validation. It does not, so this check must FAIL."""
+    started = time.monotonic()
+    session = Session("control", run_dir)
+    case = new_case(session, "control")
+    lorem(case)
+    session.expect(["validate", case.name, "--strict"], 0, "the independent review is missing")
+    expected = [CONTROL_FAILURE.format(case=case.name)]
+    if session.failures == expected:
+        return result_row("control", started, [], "FAIL observed: " + expected[0])
+    if session.failures:
+        return result_row(
+            "control",
+            started,
+            [
+                f"failed for another reason; expected {expected[0]!r}: "
+                + "; ".join(session.failures)
+            ],
+            "",
+        )
+    return result_row("control", started, ["the wrong expectation passed"], "")
+
+
+def changed_drives() -> list[str]:
+    # origin/main first: after a commit on local main, merge-base with main is HEAD itself.
+    main = (
+        git("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/main").strip()
+        or "main"
+    )
+    base = git("merge-base", "HEAD", main).strip()
+    files = set(git("diff", "--name-only", base).splitlines())
+    files |= set(git("ls-files", "--others", "--exclude-standard").splitlines())
+    if any(fnmatch.fnmatch(f, glob) for f in files for glob in EVERY_DRIVE):
+        return list(DRIVES)
+    hits = [
+        name
+        for name, d in DRIVES.items()
+        if any(fnmatch.fnmatch(f, g) for f in files for g in d.paths)
+    ]
+    return hits or [SMOKE]
+
+
+def main(argv: list[str]) -> int:
+    command = argv[0] if argv else ""
+    if command == "list":
+        for name, d in DRIVES.items():
+            print(
+                f"{name}{' (smoke)' if name == SMOKE else ''}\n  proves: {d.proves}\n  paths:  {', '.join(d.paths)}"
+            )
+        print(f"every drive: {', '.join(EVERY_DRIVE)}")
+        return 0
+    if command == "control":
+        names: list[str] = []
+    elif command == "all":
+        names = list(DRIVES)
+    elif not argv:
+        names = changed_drives()
+    elif unknown := [a for a in argv if a not in DRIVES]:
+        print(
+            f"verify: unknown drive {', '.join(unknown)}; choose from {', '.join(DRIVES)}, or all, list, control",
+            file=sys.stderr,
+        )
+        return 2
+    else:
+        names = argv
+    run_dir = make_run_dir()
+    before = repo_state()
+    print(f"verify: building the wheel, then driving {', '.join(names) or 'control'}")
+    preflight(run_dir)
+    with ThreadPoolExecutor(max_workers=len(DRIVES)) as pool:
+        drives = pool.map(lambda name: drive(name, run_dir), names)
+        results = list(drives) if names else [control(run_dir)]
+    tripped = TRIPWIRE_LOG.read_text().strip() if TRIPWIRE_LOG.exists() else ""
+    if tripped:
+        detail = f"a stubbed tool ran: {tripped}"
+        results.append({"drive": "tripwire", "result": "FAIL", "seconds": 0, "detail": detail})
+    after = repo_state()
+    if changed := sorted(k for k in before.keys() | after.keys() if before.get(k) != after.get(k)):
+        detail = f"the run changed the checkout: {', '.join(changed)}"
+        results.append({"drive": "repo-state", "result": "FAIL", "seconds": 0, "detail": detail})
+    for row in results:
+        print(f"{row['result']} {row['drive']} {row['seconds']}s {row['detail']}")
+    summary = {
+        "sha": git("rev-parse", "HEAD").strip(),
+        "dirty": run_dir.name.endswith("-dirty"),
+        "fingerprint": fingerprint(),
+        "results": results,
+    }
+    (run_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    print(f"evidence: {run_dir}")
+    return 1 if any(row["result"] != "PASS" for row in results) else 0
+
+
+def cleanup() -> None:
+    for group in list(LIVE_GROUPS):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(group, signal.SIGKILL)
+    shutil.rmtree(SCRATCH, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    try:
+        code = main(sys.argv[1:])
+    finally:
+        cleanup()
+    raise SystemExit(code)

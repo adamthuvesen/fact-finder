@@ -1,0 +1,53 @@
+setup = """
+**Server:** official [Azure MCP Server](https://github.com/microsoft/mcp)
+(`@azure/mcp`) - stdio, run via `npx -y @azure/mcp@latest server start`. One
+server across Azure services: Monitor/Log Analytics, Azure SQL, Data Explorer
+(Kusto), Cosmos DB, Storage, and more.
+
+**Read-only enforcement (`server-flag:--read-only`):** the bundle runs with
+`--read-only`, which filters the exposed tools to read-only operations and blocks
+writes across every namespace. Narrow further with `--namespace <service>` (e.g.
+`monitor`, `sql`, `kusto`) if you only want one area.
+
+2. Authenticate with the Azure CLI before launching the agent:
+   ```bash
+   az login        # DefaultAzureCredential picks this up
+   ```
+3. **Defense in depth (strongly recommended):** sign in as an identity that holds
+   only the **Reader** role (and **Monitoring Reader** for Log Analytics) on the
+   subscriptions/resource groups you need. `--read-only` blocks writes at the
+   server; a Reader role means the credential can't write either.
+
+## Notes
+
+- KQL over Log Analytics is the observability path (the Azure equivalent of the
+  Datadog bundle); Azure SQL / Kusto cover the warehouse path.
+- `--read-only` is a good default for auditing and discovery - keep it on.
+- For Azure DevOps work items / repos / pipelines, use the separate `azure-devops`
+  bundle (different server, different auth).
+"""
+
+[source]
+display_name = "Azure"
+category = "warehouse"
+transport = "stdio"
+plan_line = "Azure for Monitor/Log Analytics (KQL), Azure SQL, and Data Explorer — the Microsoft-cloud data and observability plane."
+notes = "Query Azure via the official Azure MCP Server in read-only mode: Azure Monitor / Log Analytics (KQL over logs and metrics), Azure SQL, Azure Data Explorer (Kusto/ADX), Cosmos DB, and Storage. The Microsoft-cloud equivalent of Snowflake/BigQuery (warehouse) plus Datadog (observability). Read-only — the server runs with --read-only (write tools filtered out); list resource groups and resources to discover scope before querying. Authenticate with an Azure identity holding a Reader role."
+
+[source.read_only_control]
+mechanism = "server_flag"
+detail = "--read-only"
+
+[server]
+server_name = "azure"
+command = "npx"
+args = [
+  "-y",
+  "@azure/mcp@latest",
+  "server",
+  "start",
+  "--read-only",
+]
+optional_args = [
+  "--namespace",
+]

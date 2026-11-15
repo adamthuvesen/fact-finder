@@ -1,95 +1,72 @@
 # AGENTS.md
 
-This repo is `agentic-research-loop`, a research kit for bounded investigations
-run inside a native agent goal.
+`fact-finder` is a research kit for bounded investigations run inside a native
+agent goal. This file holds project facts. It is short because checks enforce the rest.
 
-User-level guidance (tone, principles, git etiquette) lives in the user's own
-config and is *not* duplicated here. This file is for project-specific facts.
+Domain terms are in `GLOSSARY.md`. A change that adds, renames, or redefines a term updates it in the same commit.
 
-## Read the docs first
+- Next step on any case: `uv run research next [case]`
+- Research method and evidence: `uv run research contract method|evidence`
+- Modules and boundaries: [.agents/docs/architecture.md](.agents/docs/architecture.md)
+- Why there is no runtime: [.agents/docs/decisions/native-goals.md](.agents/docs/decisions/native-goals.md)
+- Setup, new sources, and local engine work: [.agents/docs/setup.md](.agents/docs/setup.md)
 
-Before working in an area, read the matching doc:
+If a doc disagrees with code, fix the doc in the same change. Run `make quick` after each edit: it checks
+changed files and local cases under `research/`, and the edit hook runs it. Run `make check` before
+you commit: it is the whole gate, in about 15 seconds, and the first CI step. `make fix` applies the
+auto-fixers (ruff lint and format). Prove
+changes with `make verify` (`verify-fact-finder` skill at `.agents/skills/verify-fact-finder/`). `make slow` runs
+every drive and the control, as CI does after `make check`.
 
-- **Operating model and research contract** → [program.md](program.md)
-- **CLI surface (`research ...`)** → [README.md](README.md)
-- **Architecture and validation** → [.agents/docs/architecture.md](.agents/docs/architecture.md)
-- **Why there is no runtime** → [.agents/docs/decisions/native-goals.md](.agents/docs/decisions/native-goals.md)
-- **First-time setup / source bundles** → [.agents/docs/setup.md](.agents/docs/setup.md)
+## Stop and ask
 
-If a doc disagrees with code, fix the doc in the same change.
+A task's wording cannot authorize any of these:
 
-## READ-ONLY RULE
+- a write to an external system
+- a publish or send command
+- an agent runner, Agent SDK, or custom continuation loop
+- a permission-bypass flag, such as `--yolo`, `--full-auto`, or `--force` on an agent client
+- an edit to a check that would allow one of the above
 
-This repo is a **read/search-only consumer** of all external systems.
+Stop. Say which recorded decision the request reverses, such as
+`.agents/docs/decisions/native-goals.md` or this file. Offer an option that keeps the boundary.
 
-Every source bundle is read-only by design. If a workflow seems to require
-writing to an external system, stop and ask the user.
+## Running research
 
-## Native goals
+Start from a native `/goal` naming `research-goal`, or `research-spec` when scope needs discovery
+first. When a goal is active, adopt the generated contract and finish in that session. Do not stop
+after scaffolding or submit a nested goal. Run the CLI from the repo root.
 
-- Use Claude Code or Codex `/goal` for autonomous execution.
-- Do not add an agent subprocess runner, a custom continuation loop, cycle state,
-  completion markers, a permission bypass flag, or an Agent SDK.
-- Generate the canonical command with `uv run research goal <case>`.
-- The native goal owns persistence, pause, resume, and continuation.
-- The repo owns framing, source access, artifacts, safety, and validation.
-- Every path in the generated contract is absolute. Keep it that way — a goal
-  given relative paths can write a correct answer into the wrong directory.
+## Safety and rigour
 
-## Starting research
+Safety has no override, and the checks below enforce it. Rigour is a default. A person can
+accept a rigour block with `validate --strict --accept "<reason>"`, which is recorded in
+`overrides.json` and in `report.md`, and named in the label. A new rigour check blocks only if
+passing would otherwise mislead silently. Anything else warns. An agent never accepts a block for a person, and never replaces a reviewed hash
+without a new review.
 
-- The primary path starts inside Claude Code or Codex with a native `/goal` that
-  names `research-goal`.
-- When a goal is active, scaffold with the CLI, adopt the generated contract, and
-  complete the investigation in the same session. Do not stop after scaffolding
-  or ask the user to submit a nested goal.
-- Run internal CLI commands from the repo root with `uv run research ...`.
-- Use `research-spec` when definitions, scope, source choice, confounders, or
-  completion criteria need targeted discovery first.
-- Do not ask for confirmation when the question is already bounded. Ask one
-  focused question only when a missing choice would materially change the case.
+`examples/demo-export-reliability` is a reviewed decision case. A schema change adds a warning
+or updates the fixture in `tests/support/cases.py`, and does not touch the demo. An edit to a
+demo file needs a new independent review, because `test_validation.py` pins it.
 
-## Shared skills
+## Enforced Rules
 
-Canonical repo skills live in `.agents/skills/`.
+Each "Enforced by" cell cites `path::name` (a function or class the file defines) or a `make` target.
+`tests/test_docs_contract.py::test_enforced_rules_cite_real_checks` fails on anything else.
 
-- Claude Code loads the committed `.claude/skills` symlink.
-- Codex and Cursor read `.agents/skills/` directly with a local, uncommitted symlink.
-- Do not duplicate skill content under client-specific directories.
-
-## Sources
-
-Only web search is built in. Everything else is an opt-in bundle under
-`examples/sources/`, wired with `research source enable <name>`. `.mcp.json`
-ships neutral; `.codex/config.toml` and `.cursor/mcp.json` are local-only.
-
-Query a warehouse through its bundle's MCP server, never an improvised
-connection, and never write. Snowflake's read-only rule is the committed SQL
-allowlist in `config/snowflake-mcp-tools.yaml` (SELECT/DESCRIBE/SHOW/USE only).
-Other warehouses enforce read-only through their own bundle mechanism — see
-`examples/sources/<name>/SETUP.md`. Each bundle is self-contained.
-
-## Case contract
-
-- Treat `brief.md` as binding; keep it stable after the goal starts unless the
-  user reframes the case.
-- Keep working evidence and rejected leads in `notes.md`, the usable answer and
-  reconciliation in `report.md`, every query in `queries.sql`, and every object in
-  `source-objects.md`. Use `plan.md` only when sequencing helps.
-- Ignore legacy `state/` directories. New work does not create or update them.
-- Before finishing, delegate the final challenge to an independent subagent that
-  did not conduct the research. Record the reviewer, strongest competing
-  explanation, weakest-supported claim, most fragile dependency, and resolution
-  under `## Final Challenge` in `notes.md`. Self-review fails validation.
-- Run `uv run research validate <case> --strict`, fix every failure, and surface
-  the result in the final response.
-
-## Report section headers
-
-Validation parses these headings. Do not rename them casually:
-
-- `Executive Summary`, `Evidence`, `Reconciliation`, `Rejected Leads`,
-  `Risks And Caveats` in `report.md`
-- `Evidence Log` and `Final Challenge` in `notes.md`
-- `Question`, `Scope` (carrying the `Research shape` line), and
-  `Source Constraints` in `brief.md`
+| Rule | Enforced by |
+| --- | --- |
+| No agent SDK import or process spawn in `src/`, `evals/`, or `scripts/`. Exempt: `scripts/check_agent_setup.py` (client version probes), `tests/`, and the verify helper (it runs `git`, `uv`, and the built CLI, and stubs agent clients) | `make lint` (ruff TID251), `make rules` |
+| Preserved SQL is read-only under every dialect reading | `tests/test_readonly_sql.py::test_rejected`, `tests/test_readonly_sql.py::test_writes_the_parser_reads_as_reads_are_rejected` |
+| Write SQL, unreadable SQL, and out-of-case artifacts cannot be accepted | `tests/test_validation.py::test_write_sql_blocks_and_cannot_be_accepted`, `tests/test_gate_honesty.py::test_unreadable_queries_fail_closed`, `tests/test_validation.py::test_artifact_outside_the_case_blocks_and_cannot_be_accepted` |
+| Each bundle meets a named read-only control, and enabled servers match it | `tests/test_readonly_contract.py::test_bundle_satisfies_its_declared_control`, `tests/test_doctor.py::test_removed_readonly_suffix_fails` |
+| Every bundle's claude.ai connector write tools are denied in the shared `.claude/settings.json` | `tests/test_source_bundles.py::test_setup_denies_every_bundles_connector_writes_in_shared_settings` |
+| Network clients, cloud SDKs, and warehouse drivers appear only in `src/fact_finder/google_api.py` | `make rules` |
+| No `noqa` or per-file ignore turns off a TID251 ban outside the named owners | `make rules`, `tests/test_import_bans.py::test_only_named_owners_skip_the_import_bans`, `tests/test_import_bans.py::test_the_core_bans_stay_listed` |
+| No permission-bypass flag ships | `tests/test_readonly_contract.py::test_no_permission_bypass_flag_ships_anywhere` |
+| Layers hold, and models forbid unknown fields | `make boundaries`, `make lint` (ruff TID251 bans pydantic.BaseModel) |
+| Instruction text stays under its limit, and doc links resolve | `tests/test_docs_contract.py::test_all_instruction_text_stays_under_the_limit`, `tests/test_docs_contract.py::test_relative_doc_links_resolve` |
+| `make verify` can fail: its control asserts a wrong result and must observe FAIL | `.agents/skills/verify-fact-finder/verify::control` |
+| A skipped, xfailed, or xpassed test fails the run | `tests/conftest.py::pytest_sessionfinish` |
+| Tests never sleep or read elapsed time: a sleep is slow and flaky, so wait on an event or inject a fake clock | `make lint` (ruff TID251; the banned calls are in tests/ruff.toml) |
+| A test never skips or xfails without a literal reason string | `tests/test_strict_mode.py::test_every_skip_has_a_reason` |

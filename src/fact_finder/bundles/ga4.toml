@@ -1,0 +1,44 @@
+setup = """
+**Transport:** `cli` - the `research ga4` subcommand, not an MCP server. Enabling it
+registers the source for planning and prompting but wires no server into the MCP
+configs.
+
+**Read-only enforcement (`scope:analytics.readonly`):** the CLI authenticates with
+the **`analytics.readonly` OAuth scope**, which reads reports and cannot edit GA4
+configuration. The scope on the credential is the guarantee.
+
+1. Run `uv run research source enable ga4`. No MCP config changes: there is no server.
+2. Authenticate with Application Default Credentials, requesting the read-only scope:
+
+   ```bash
+   gcloud auth application-default login \\
+     --scopes="https://www.googleapis.com/auth/analytics.readonly,https://www.googleapis.com/auth/cloud-platform"
+   ```
+
+   Or point `GOOGLE_APPLICATION_CREDENTIALS` at a service account granted Viewer
+   on the GA4 property.
+3. Configure the property. There is no default. Set `GA4_PROPERTY_ID`, or
+   `ga4_property_id` under `[tool.fact-finder]` in `pyproject.toml`. The environment
+   variable wins. `GCP_QUOTA_PROJECT` is optional.
+
+## Use
+
+```bash
+research ga4 --start-date 2026-03-01 --end-date 2026-04-06 --dimensions date --metrics sessions
+```
+
+- `--limit` and `--offset` paginate. `--order-by <metric>` sorts descending.
+- For large properties the Data API samples and thresholds. For unsampled data,
+  query the GA4 to BigQuery export through the `bigquery` source.
+"""
+
+[source]
+display_name = "GA4"
+category = "product-analytics"
+transport = "cli"
+plan_line = "Google Analytics 4 site analytics through `research ga4`."
+notes = "Independently instrumented sessions, traffic mix, and funnel evidence. Inspect row counts, pagination, thresholds, sampling, attribution, and property time zone."
+
+[source.read_only_control]
+mechanism = "credential_scope"
+detail = "analytics.readonly"

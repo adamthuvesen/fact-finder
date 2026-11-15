@@ -1,0 +1,38 @@
+setup = """
+**Server:** official Atlassian remote MCP server - hosted at
+`https://mcp.atlassian.com/v1/mcp/authv2` (covers Jira and Confluence).
+
+**Read-only enforcement (`credential-only`):** the Atlassian server has **no
+read-only flag**. Its actions are scoped only to what the authenticated user can
+already do, so read-only is enforced entirely by the **account you connect**.
+Nothing in committed config can guarantee it - this is why the source is marked
+`credential-only`.
+
+3. **Provision a view-only Atlassian account** (or group) whose permission
+   scheme grants *Browse Projects* but **no** create/edit/transition/comment
+   permissions, and authenticate the MCP as that principal:
+   - **Claude Code / Cursor:** `/mcp` (Claude) or Settings → MCP (Cursor), sign
+     in as the view-only account.
+   - **Codex:** `codex mcp login jira`.
+
+## Why this matters
+
+If you connect a read-write account, the agent *can* create and transition
+issues even though this tool's policy says read-only. The permission scheme is
+your only real guardrail - make it view-only.
+"""
+
+[source]
+display_name = "Jira"
+category = "work-context"
+transport = "http-oauth"
+plan_line = "Jira for issue state, project progress, and ownership context."
+notes = "Search Jira issues, projects, sprints, and comments via the Atlassian remote MCP server. Read-only is enforced by a view-only Atlassian account — the server itself has no read-only flag. Never create, transition, assign, or comment on issues."
+
+[source.read_only_control]
+mechanism = "credential"
+detail = "account you connect"
+
+[server]
+server_name = "jira"
+url = "https://mcp.atlassian.com/v1/mcp/authv2"

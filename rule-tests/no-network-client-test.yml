@@ -1,0 +1,46 @@
+id: no-network-client
+valid:
+  - import urllib.parse
+  - from urllib.parse import urlencode
+  - from urllib import parse
+  - from http import HTTPStatus
+  - import google.auth
+  - import json
+  - import socketserver
+  - from . import client
+invalid:
+  - import socket
+  - import urllib.request
+  - import http.client as hc
+  - import requests
+  - from httpx import Client
+  - from urllib import request
+  - from urllib import parse, request as r
+  - |
+    from urllib import (
+        parse,
+        request,
+    )
+  - from http import client
+  - from google.auth.transport.requests import Request
+  - from google.cloud import bigquery
+  - from google import cloud
+  - import snowflake.connector
+  - import psycopg
+  - import boto3
+  - import duckdb
+  - import mysql.connector
+  - import pyodbc
+  - import grpc
+  - import litellm
+  - from google import genai
+  - import google.generativeai as genai
+  - import vertexai
+  - from google.analytics.data_v1beta import BetaAnalyticsDataClient
+  - from mysql import connector
+  - import clickhouse_driver
+  - from pyathena import connect
+  - import pandas_gbq
+  - import pymongo
+  - import google_auth_httplib2
+  - from google import analytics

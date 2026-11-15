@@ -1,0 +1,59 @@
+setup = """
+**Server:** official [`@azure-devops/mcp`](https://github.com/microsoft/azure-devops-mcp)
+Runs over local stdio via `npx -y @azure-devops/mcp <your-org>`. Covers work items
+and boards, repos and pull requests, wikis, pipelines/builds, and test plans.
+
+**Read-only enforcement (`credential-only`):** the local server ships **write
+tools and has no read-only flag** - so nothing in committed config can guarantee
+read-only. The connecting identity is the only guardrail, and the autonomous
+runner skips permission prompts. Provision read-only access:
+
+- **Preferred - a read-only-scoped PAT:** create a Personal Access Token with only
+  *Read* scopes (Work Items: Read, Code: Read, Build: Read, Wiki: Read, etc.) and
+  no write scopes. Azure DevOps then rejects writes the token isn't scoped for.
+  Provide it as the **`PERSONAL_ACCESS_TOKEN`** environment variable (base64-encode
+  the Read-scoped PAT), which the server reads for non-interactive auth. Never commit
+  it. (Default auth is interactive browser/Entra login if no token is set.)
+- **Or a view-only account:** sign in (browser/Entra) as a **Stakeholder** or a
+  user whose project role is read-only.
+
+2. Replace `YOUR_ADO_ORG` in the wired config with your Azure DevOps organization
+   name (the `dev.azure.com/<org>` slug).
+3. Authenticate on first tool call (browser/Entra) - or set a read-only PAT in the
+   environment as above.
+4. Optional: pass `-d <domains>` (e.g. `-d core work-items repositories wiki
+   pipelines`) to limit which tool groups load. This narrows the surface but does
+   **not** enforce read-only on its own - the credential still must.
+
+## Notes
+
+- The Microsoft-shop equivalent of the Jira + GitHub bundles in one server.
+- A cleaner read-only path is coming: the **remote** server
+  (`https://mcp.dev.azure.com/{org}`) supports an `X-MCP-Readonly: true` header,
+  but Claude Code / Codex / Cursor aren't supported yet (pending Microsoft Entra
+  dynamic client registration). Switch to it for config-checkable read-only once
+  your client is supported.
+"""
+
+[source]
+display_name = "Azure DevOps"
+category = "work-context"
+transport = "stdio"
+plan_line = "Azure DevOps for work items, boards, repos, pull requests, and pipelines — the Microsoft-shop Jira + GitHub."
+notes = "Search and read Azure DevOps via the official azure-devops-mcp server: work items and boards, repositories and pull requests, wikis, pipelines and builds, and test plans. The Microsoft-shop equivalent of Jira (work tracking) plus GitHub (repos/PRs). Read-only — the local server ships write tools and has no read-only flag, so read-only is enforced by the connecting account / PAT (use read-only scopes); never create, edit, or transition work items, comment, queue pipelines, or push branches."
+
+[source.read_only_control]
+mechanism = "credential"
+detail = "read-only"
+
+[server]
+server_name = "azure-devops"
+command = "npx"
+args = [
+  "-y",
+  "@azure-devops/mcp",
+  "YOUR_ADO_ORG",
+]
+placeholders = [
+  "YOUR_ADO_ORG",
+]

@@ -1,153 +1,182 @@
-"""Tests for the pluggable source registry and local-only mode."""
+"""Tests for the source registry and the source lines a brief carries."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
+import tomlkit
+from pydantic import ValidationError
 
-from agentic_research_loop import sources
-from agentic_research_loop.sources import (
-    SOURCE_CONFIGS,
-    build_sources_config,
-    register_source,
+from fact_finder.cli import main
+from fact_finder.source_bundles import load_registry
+from fact_finder.sources import (
+    BUILTIN_SOURCES,
+    ServerDefinition,
+    SourceConfigError,
+    SourceSpec,
+    source_constraints,
 )
 
-_VALID_SPEC = {
-    "key": "zendesk_mcp",
-    "hint_field": "focus",
-    "label": "Zendesk focus",
-    "display_label": "Zendesk",
-    "freshness_caveat_group": "docs",
+VALID_SPEC = {
+    "display_name": "Zendesk",
+    "category": "work-context",
     "transport": "stdio",
-    "read_only_mechanism": "credential-only",
+    "read_only_control": {"mechanism": "credential", "detail": "view-only agent"},
     "plan_line": "Zendesk for support tickets.",
-    "base_notes": "Search support tickets. Read-only.",
+    "notes": "Search support tickets. Read-only.",
 }
 
 
-@pytest.fixture()
-def _restore_registry():
-    """Keep registry mutations from leaking across tests."""
-    snapshot = dict(SOURCE_CONFIGS)
-    yield
-    SOURCE_CONFIGS.clear()
-    SOURCE_CONFIGS.update(snapshot)
+def _enable(root: Path, specs: dict[str, Any]) -> None:
+    """Write one bundle per spec and enable them all."""
+    bundles = root / "examples" / "sources"
+    bundles.mkdir(parents=True, exist_ok=True)
+    for name, spec in specs.items():
+        document = {"setup": "Read-only.", "source": spec}
+        (bundles / f"{name}.toml").write_text(tomlkit.dumps(document), encoding="utf-8")
+    (root / "config").mkdir(exist_ok=True)
+    (root / "config" / "sources.json").write_text(
+        json.dumps({"sources": list(specs)}), encoding="utf-8"
+    )
 
 
-def test_register_source_adds_to_registry(_restore_registry) -> None:
-    register_source("zendesk", dict(_VALID_SPEC))  # type: ignore[arg-type]
-    assert "zendesk" in SOURCE_CONFIGS
-    config = build_sources_config(hints={"zendesk": "billing tickets"})
-    assert config["zendesk_mcp"]["enabled"] is True
-    assert config["zendesk_mcp"]["focus"] == "billing tickets"
+def test_registry_is_builtins_plus_the_enabled_bundles(tmp_path) -> None:
+    assert set(load_registry(tmp_path)) == set(BUILTIN_SOURCES)
 
+    _enable(tmp_path, {"zendesk": VALID_SPEC})
 
-def test_register_source_rejects_collision(_restore_registry) -> None:
-    with pytest.raises(ValueError, match="already exists"):
-        register_source("web-search", dict(_VALID_SPEC))  # type: ignore[arg-type]
-    # override=True is allowed
-    register_source("web-search", dict(_VALID_SPEC), override=True)  # type: ignore[arg-type]
+    assert load_registry(tmp_path)["zendesk"].plan_line == VALID_SPEC["plan_line"]
 
 
 @pytest.mark.parametrize(
-    "bad_spec, match",
+    ("bad_spec", "match"),
     [
-        ({**_VALID_SPEC, "key": ""}, "non-empty string"),
+        ({**VALID_SPEC, "plan_line": ""}, "plan_line"),
+        ({k: v for k, v in VALID_SPEC.items() if k != "plan_line"}, "plan_line"),
+        ({**VALID_SPEC, "surprise": "x"}, "surprise"),
+        ({**VALID_SPEC, "transport": "carrier-pigeon"}, "transport"),
         (
-            {k: v for k, v in _VALID_SPEC.items() if k != "plan_line"},
-            "missing required",
+            {
+                **VALID_SPEC,
+                "read_only_control": {"mechanism": "trust-me", "detail": "x"},
+            },
+            "mechanism",
         ),
-        ({**_VALID_SPEC, "surprise": "x"}, "unknown field"),
     ],
 )
-def test_register_source_validates_spec(_restore_registry, bad_spec, match) -> None:
-    with pytest.raises(ValueError, match=match):
-        register_source("zendesk", bad_spec)  # type: ignore[arg-type]
+def test_registry_rejects_a_bad_spec(tmp_path, bad_spec, match) -> None:
+    _enable(tmp_path, {"zendesk": bad_spec})
+
+    with pytest.raises(SourceConfigError, match=match):
+        load_registry(tmp_path)
 
 
-def test_register_source_rejects_unknown_transport(_restore_registry) -> None:
-    with pytest.raises(ValueError, match="unknown transport"):
-        register_source(  # type: ignore[arg-type]
-            "zendesk", {**_VALID_SPEC, "transport": "carrier-pigeon"}
-        )
+def test_registry_rejects_an_enabled_source_with_no_bundle(tmp_path) -> None:
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "sources.json").write_text('{"sources": ["zendesk"]}')
+
+    with pytest.raises(SourceConfigError, match="research source new zendesk"):
+        load_registry(tmp_path)
 
 
-def test_register_source_rejects_unknown_read_only_mechanism(_restore_registry) -> None:
-    with pytest.raises(ValueError, match="read_only_mechanism"):
-        register_source(  # type: ignore[arg-type]
-            "zendesk", {**_VALID_SPEC, "read_only_mechanism": "trust-me"}
-        )
+def test_user_file_rejects_a_builtin_collision(tmp_path) -> None:
+    _enable(tmp_path, {"web-search": VALID_SPEC})
+
+    with pytest.raises(SourceConfigError, match="redefines the built-in"):
+        load_registry(tmp_path)
 
 
-def test_local_only_disables_every_external_source() -> None:
-    config = build_sources_config(local_only=True, local_context_paths=None)
-    external_keys = [spec["key"] for spec in SOURCE_CONFIGS.values()]
-    assert all(config[key]["enabled"] is False for key in external_keys)
+def test_source_name_must_make_a_usable_identifier(tmp_path: Path) -> None:
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "sources.json").write_text('{"sources": ["Bad Name"]}')
+
+    with pytest.raises(SourceConfigError, match="source name"):
+        load_registry(tmp_path)
 
 
-def test_build_sources_config_rejects_unknown_source() -> None:
-    with pytest.raises(ValueError, match="Unknown source"):
-        build_sources_config(enabled={"nope": True})
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {},
+        {"url": "https://x.test", "command": "npx"},
+    ],
+)
+def test_server_defines_exactly_one_transport(fields) -> None:
+    with pytest.raises(ValidationError, match="both or neither"):
+        ServerDefinition(server_name="foo", **fields)
 
 
-def test_local_context_notes_flag_sensitive_paths(tmp_path: Path) -> None:
-    sensitive_dir = tmp_path / ".ssh"
-    sensitive_dir.mkdir()
+def test_constraints_list_plan_lines_hints_and_local_paths(tmp_path) -> None:
+    registry = {"zendesk": SourceSpec.model_validate(VALID_SPEC)}
 
-    config = build_sources_config(local_context_paths=[str(sensitive_dir)])
-    entry = config["local_context_folders"][0]
-
-    assert entry["path"] == str(sensitive_dir.resolve())
-    assert "Sensitive-looking path attached" in entry["notes"]
-
-
-def test_user_sources_file_is_loaded(tmp_path, monkeypatch, _restore_registry) -> None:
-    repo = tmp_path / "repo"
-    (repo / "config").mkdir(parents=True)
-    (repo / "pyproject.toml").write_text(
-        "[project]\nname = 'agentic-research-loop'\n", encoding="utf-8"
+    lines = source_constraints(
+        registry,
+        ["zendesk"],
+        hints={"zendesk": "billing tickets"},
+        local_context_paths=[str(tmp_path)],
     )
-    (repo / "config" / "sources.json").write_text(
-        json.dumps({"sources": {"zendesk": _VALID_SPEC}}), encoding="utf-8"
-    )
-    monkeypatch.setattr(sources, "find_repo_root", lambda *a, **k: repo)
-    sources._load_user_sources()
-    assert "zendesk" in SOURCE_CONFIGS
+
+    assert lines == [
+        "Zendesk for support tickets.",
+        "Zendesk focus: billing tickets",
+        f"Local context folder: {tmp_path.resolve()}",
+    ]
 
 
-def test_user_sources_file_rejects_builtin_collision(
-    tmp_path, monkeypatch, _restore_registry
-) -> None:
-    repo = tmp_path / "repo"
-    (repo / "config").mkdir(parents=True)
-    (repo / "config" / "sources.json").write_text(
-        json.dumps({"sources": {"web-search": _VALID_SPEC}}), encoding="utf-8"
-    )
-    monkeypatch.setattr(sources, "find_repo_root", lambda *a, **k: repo)
-    with pytest.raises(ValueError, match="redefines built-in"):
-        sources._load_user_sources()
+def test_sensitive_local_path_gets_a_note(tmp_path: Path) -> None:
+    sensitive = tmp_path / ".ssh"
+    sensitive.mkdir()
+
+    lines = source_constraints({}, [], local_context_paths=[str(sensitive)])
+
+    assert "Sensitive-looking path attached" in lines[1]
 
 
-def test_cli_local_only_leaves_no_external_source_in_the_brief(
+def test_local_only_leaves_no_external_source_in_the_brief(repo_root, monkeypatch) -> None:
+    monkeypatch.chdir(repo_root)
+
+    assert main(["init", "reg", "--template", "root-cause", "--local-only"]) == 0
+
+    case = next((repo_root / "research").iterdir())
+    brief = (case / "brief.md").read_text(encoding="utf-8")
+    for spec in BUILTIN_SOURCES.values():
+        assert spec.plan_line not in brief
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ["init", "x"],
+        ["source", "disable", "github"],
+        ["source", "enable", "github"],
+        ["source", "list"],
+        ["setup"],
+        ["doctor"],
+    ],
+)
+def test_bad_sources_json_is_a_clean_cli_error(repo_root, monkeypatch, capsys, command) -> None:
+    """`{bad` used to raise a raw ValueError at import, on every command."""
+    monkeypatch.chdir(repo_root)
+    (repo_root / "config").mkdir()
+    (repo_root / "config" / "sources.json").write_text("{bad", encoding="utf-8")
+
+    assert main(command) == 1
+
+    captured = capsys.readouterr()
+    assert captured.err.startswith("config/sources.json")
+    assert "Fix:" in captured.err
+    assert captured.out == ""
+
+
+def test_bad_sources_json_does_not_block_commands_that_never_read_it(
     repo_root, monkeypatch
 ) -> None:
-    from agentic_research_loop.cli import main
-
     monkeypatch.chdir(repo_root)
-    exit_code = main(["init", "reg", "--template", "root-cause", "--local-only"])
+    (repo_root / "config").mkdir()
+    (repo_root / "config" / "sources.json").write_text("{bad", encoding="utf-8")
 
-    assert exit_code == 0
-    case = sorted((repo_root / "research").iterdir())[-1]
-    brief = (case / "brief.md").read_text(encoding="utf-8")
-    for spec in SOURCE_CONFIGS.values():
-        assert spec["plan_line"] not in brief
-
-
-def test_example_sources_file_is_valid() -> None:
-    """The committed example must parse and validate."""
-    example = Path(__file__).resolve().parents[1] / "config" / "sources.json.example"
-    payload = json.loads(example.read_text(encoding="utf-8"))
-    for name, spec in payload["sources"].items():
-        sources._validate_source_spec(name, spec)
+    assert main(["list"]) == 0
+    assert main(["schema", "evidence"]) == 0

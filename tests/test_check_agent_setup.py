@@ -4,7 +4,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = ROOT / "scripts" / "check_agent_setup.py"
 

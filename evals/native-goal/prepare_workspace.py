@@ -13,7 +13,6 @@ import shutil
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 EXCLUDED_ROOT_NAMES = {
@@ -49,7 +48,7 @@ def prepare_workspace(source_root: Path, target: Path) -> Path:
             for name in names
             if name == ".env" or name.startswith(".env.") or name == "__pycache__"
         }
-        if relative == Path("."):
+        if relative == Path():
             ignored.update(EXCLUDED_ROOT_NAMES & set(names))
         # Keep the skills symlink, drop the operator's own permission settings.
         if relative == Path(".claude"):
@@ -75,10 +74,10 @@ def main() -> int:
     try:
         workspace = prepare_workspace(ROOT, args.target)
     except (FileExistsError, OSError, ValueError) as exc:
-        print(f"Could not prepare canary workspace: {exc}", file=sys.stderr)
+        sys.stderr.write(f"Could not prepare canary workspace: {exc}\n")
         return 1
 
-    print(workspace)
+    sys.stdout.write(f"{workspace}\n")
     return 0
 
 

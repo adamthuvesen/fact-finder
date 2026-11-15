@@ -3,11 +3,11 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "agentic-research-loop"
+name = "fact-finder"
 version = "0.1.0"
 description = "Research kit for bounded investigations run inside a native agent goal"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 license = "Apache-2.0"
 authors = [{ name = "Adam Thuvesen" }]
 keywords = ["agents", "research", "autonomous", "investigation", "llm"]
@@ -16,26 +16,183 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "google-auth>=2.20",
-    "requests>=2.28",
+    "google-auth[requests]>=2.20",
+    "pydantic>=2.14.2",
+    "pyyaml>=6.0.3",
+    "sqlglot>=30.29.0",
+    "tomlkit>=0.15.2",
 ]
 
 [dependency-groups]
 dev = [
+    "actionlint-py>=1.7.12.25",
+    "ast-grep-cli>=0.51.1",
+    "basedpyright==1.40.2",
+    "deptry>=0.25.1",
+    "import-linter>=2.15",
+    "markdown-it-py>=4.2.0",
+    "pip-audit>=2.10.1",
     "pre-commit>=4.0.0",
-    "pytest>=8.2,<9",
-    "ruff>=0.9",
+    "pytest>=8.2",
+    "pytest-cov>=7.1.0",
+    "pytest-xdist>=3.8.0",
+    "ruff==0.17.4",
+    "types-pyyaml>=6.0.12.20261103",
+    "vulture>=2.16",
+    "zizmor>=1.32.0",
 ]
 
 [project.scripts]
-research = "agentic_research_loop.cli:_entry"
+research = "fact_finder.cli:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
+addopts = ["--strict-markers"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/agentic_research_loop"]
+packages = ["src/fact_finder"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+extend-exclude = ["vulture_whitelist.py"]
+# The verify driver is a Python script with no file extension.
+extend-include = [".agents/skills/*/verify"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "S", "BLE", "TRY", "PTH", "TID", "ANN", "PL", "RUF", "C4", "DTZ", "T20", "ARG", "ERA", "PERF", "FBT", "SLF", "RET", "PGH", "PGH003"]
+ignore = [
+    "E501",
+    "TRY003",
+    "PLR2004",
+    "PLR0913",
+    "ANN401",
+]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"anthropic".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"claude_agent_sdk".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"claude_code_sdk".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"codex".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"openai".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"openai_agents".msg = "No agent SDK: the native goal owns execution. Fix: remove the import; this repo starts no agents, so no module may call a model."
+"subprocess".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"multiprocessing".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"pty".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"asyncio.create_subprocess_exec".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"asyncio.create_subprocess_shell".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.system".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.popen".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.fork".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.forkpty".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.posix_spawn".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.posix_spawnp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnl".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnle".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnlp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnv".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnve".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnvp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execl".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execv".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execve".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execvp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"concurrent.futures.ProcessPoolExecutor".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"concurrent.futures.process".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execle".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execlp".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execlpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.execvpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnlpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"os.spawnvpe".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"asyncio".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"pexpect".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"plumbum".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"sh".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"invoke".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"webbrowser".msg = "No process spawn: that is how an agent runner starts. Fix: remove the call; run the tool from the Makefile or a hook script. Only scripts/check_agent_setup.py and the verify skill may spawn."
+"importlib.import_module".msg = "No dynamic import: it hides the other import bans. Fix: write a plain import statement at the top of the module."
+"pydantic.BaseModel".msg = "Plain BaseModel allows unknown fields. Fix: subclass fact_finder.strict_model.StrictModel from src/fact_finder/strict_model.py."
+
+[tool.ruff.lint.per-file-ignores]
+# The CLI's job is to print.
+"src/fact_finder/cli.py" = ["T201"]
+# The verify driver runs the real CLI and prints its evidence path.
+".agents/skills/*/verify" = ["S603", "S607", "TID251", "T20", "FBT"]
+# This script probes installed clients on purpose, with fixed arguments.
+"scripts/check_agent_setup.py" = ["S603", "TID251"]
+"src/fact_finder/strict_model.py" = ["TID251"]
+"tests/**" = ["S101", "PLR0917", "S603", "S607", "ANN", "ARG", "PLC0415", "SLF001", "FBT", "T20", "TRY", "PTH123", "S105", "S108"]
+
+[tool.basedpyright]
+pythonVersion = "3.14"
+typeCheckingMode = "strict"
+enableTypeIgnoreComments = false
+reportUnnecessaryTypeIgnoreComment = "error"
+venvPath = "."
+venv = ".venv"
+include = ["."]
+failOnWarnings = false
+exclude = ["**/.venv", "**/__pycache__", "research", "examples", "vulture_whitelist.py"]
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportUnknownVariableType = false
+reportUnknownParameterType = false
+reportUnknownLambdaType = false
+reportMissingTypeStubs = false
+
+[[tool.basedpyright.executionEnvironments]]
+root = "tests"
+reportMissingParameterType = false
+reportPrivateUsage = false
+
+[tool.vulture]
+paths = ["src", "scripts", "vulture_whitelist.py"]
+min_confidence = 60
+ignore_names = ["cls", "model_config"]
+ignore_decorators = ["@field_validator", "@model_validator"]
+
+[tool.deptry]
+extend_exclude = ["experiments", "examples", "evals", "bench"]
+known_first_party = ["fact_finder"]
+
+[tool.coverage.run]
+source = ["fact_finder"]
+
+[tool.coverage.report]
+precision = 2
+
+[tool.uv]
+# A user-level `only-managed` makes uv rebuild `.venv` when it was built under another
+# XDG_DATA_HOME, because uv keeps its managed Python there. This value accepts the existing `.venv`.
+python-preference = "managed"
+
+[tool.fact-finder]
+sources_dir = "src/fact_finder/bundles"
+
+[tool.importlinter]
+root_package = "fact_finder"
+
+[[tool.importlinter.contracts]]
+name = "A module imports only lower layers, and nothing imports cli. Fix: move shared code down a layer in pyproject.toml"
+type = "layers"
+containers = ["fact_finder"]
+exhaustive = true
+layers = [
+    "__main__ | api",
+    "cli",
+    "next_step | lint | repo_setup | acceptance",
+    "research | validation | doctor",
+    "source_bundles | agent_hooks",
+    "evidence_findings | client_configs | templates | from_spec | overrides",
+    "evidence_files",
+    "evidence_models",
+    "sources | readonly_sql",
+    "strict_model",
+    "layout",
+    "io | google_api | feedback",
+]

@@ -1,0 +1,29 @@
+setup = """
+**Server:** official Linear MCP server - hosted, OAuth. Endpoint
+`https://mcp.linear.app/mcp`.
+
+**Read-only enforcement (`credential-only`):** the Linear server can create/update
+issues if the connected account can. There is **no read-only flag** - connect a
+**read-only Linear account** and never create or update issues.
+
+2. Authenticate via `/mcp` (Claude) or Settings → MCP (Cursor) as the read-only account.
+
+## Notes
+
+- Covers project status, issue tracking, cycle planning, and ownership context.
+"""
+
+[source]
+display_name = "Linear"
+category = "work-context"
+transport = "http-oauth"
+plan_line = "Linear for project status, issue tracking, and ownership context."
+notes = "Search project status, issue tracking, cycle planning, and ownership context. Read-only — never create or update issues."
+
+[source.read_only_control]
+mechanism = "credential"
+detail = "read-only Linear account"
+
+[server]
+server_name = "linear"
+url = "https://mcp.linear.app/mcp"
